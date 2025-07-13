@@ -88,6 +88,90 @@ tests = ["cloudpickle", "hypothesis", "mypy (>=1.11.1)", "pympler", "pytest (>=4
 tests-mypy = ["mypy (>=1.11.1)", "pytest-mypy-plugins"]
 
 [[package]]
+name = "bio"
+version = "1.8.0"
+description = ""
+optional = false
+python-versions = ">=3.10"
+files = [
+    {file = "bio-1.8.0-py3-none-any.whl", hash = "sha256:8861fb3ef608d3ce8b2fd8dc8d9a901c4d29b58b9fbd30b5059d089c608a6e13"},
+    {file = "bio-1.8.0.tar.gz", hash = "sha256:b15bc8cd9b93bdaed83a9da57ac92708216beade2d4351d782f70da3868f95a5"},
+]
+
+[package.dependencies]
+biopython = ">=1.80"
+gprofiler-official = "*"
+mygene = "*"
+pandas = "*"
+pooch = "*"
+requests = "*"
+tqdm = "*"
+
+[[package]]
+name = "biopython"
+version = "1.85"
+description = "Freely available tools for computational molecular biology."
+optional = false
+python-versions = ">=3.9"
+files = [
+    {file = "biopython-1.85-cp310-cp310-macosx_10_9_x86_64.whl", hash = "sha256:a6308053a61f3bdbb11504ece4cf24e264c6f1d6fad278f7e59e6b84b0d9a7b4"},
+    {file = "biopython-1.85-cp310-cp310-macosx_11_0_arm64.whl", hash = "sha256:434dd23e972b0c89e128f2ebbd16b38075d609184f4f1fd16368035f923019c2"},
+    {file = "biopython-1.85-cp310-cp310-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:9a08d082e85778259a83501063871e00ba57336136403b75050eea14d523c00a"},
+    {file = "biopython-1.85-cp310-cp310-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:d93464e629950e4df87d810125dc4e904538a4344b924f340908ea5bc95db986"},
+    {file = "biopython-1.85-cp310-cp310-win32.whl", hash = "sha256:f2f45ab3f1e43fdaa697fd753148999090298623278097c19c2c3c0ba134e57c"},
+    {file = "biopython-1.85-cp310-cp310-win_amd64.whl", hash = "sha256:7c8326cd2825ba166abecaf72843b9b15823affd6cec04fde65f0d2526767da4"},
+    {file = "biopython-1.85-cp311-cp311-macosx_10_9_x86_64.whl", hash = "sha256:db8822adab0cd75a6e6ae845acf312addd8eab5f9b731c191454b961fc2c2cdc"},
+    {file = "biopython-1.85-cp311-cp311-macosx_11_0_arm64.whl", hash = "sha256:8e2bbe58cc1a592b239ef6d68396745d3fbfaafc668ce38283871d8ff070dbab"},
+    {file = "biopython-1.85-cp311-cp311-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:5916eb56df7ecd4a3babc07a48d4894c40cfb45dc18ccda1c148d0131017ce04"},
+    {file = "biopython-1.85-cp311-cp311-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:b0cec8833bf3036049129944ee5382dd576dac9670c3814ff2314b52aa94f199"},
+    {file = "biopython-1.85-cp311-cp311-win32.whl", hash = "sha256:cf88a4c8d8af13138be115949639a5e4a201618185a72ff09adbe175b7946b28"},
+    {file = "biopython-1.85-cp311-cp311-win_amd64.whl", hash = "sha256:d3c99db65d57ae4fc5034e42ac6cd8ddce069e664903f04c8a4f684d7609d6fa"},
+    {file = "biopython-1.85-cp312-cp312-macosx_10_9_x86_64.whl", hash = "sha256:cc5b981b9e3060db7c355b6145dfe3ce0b6572e1601b31211f6d742b10543874"},
+    {file = "biopython-1.85-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:6fe47d704c2d3afac99aeb461219ec5f00273120d2d99835dc0a9a617f520141"},
+    {file = "biopython-1.85-cp312-cp312-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:e54e495239e623660ad367498c2f7a1a294b1997ba603f2ceafb36fd18f0eba6"},
+    {file = "biopython-1.85-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:d024ad48997ad53d53a77da24b072aaba8a550bd816af8f2e7e606a9918a3b43"},
+    {file = "biopython-1.85-cp312-cp312-win32.whl", hash = "sha256:6985e17a2911defcbd30275a12f5ed5de2765e4bc91a60439740d572fdbfdf43"},
+    {file = "biopython-1.85-cp312-cp312-win_amd64.whl", hash = "sha256:d6f8efb2db03f2ec115c5e8c764dbadf635e0c9ecd4c0e91fc8216c1b62f85f5"},
+    {file = "biopython-1.85-cp313-cp313-macosx_10_13_x86_64.whl", hash = "sha256:bae6f17262f20e9587d419ba5683e9dc93a31ee1858b98fa0cff203694d5b786"},
+    {file = "biopython-1.85-cp313-cp313-macosx_11_0_arm64.whl", hash = "sha256:b1e4918e6399ab0183dd863527fec18b53b7c61b6f0ef95db84b4adfa430ce75"},
+    {file = "biopython-1.85-cp313-cp313-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:86e487b6fe0f20a2b0138cb53f3d4dc26a7e4060ac4cb6fb1d19e194d445ef46"},
+    {file = "biopython-1.85-cp313-cp313-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:327184048b5a50634ae0970119bcb8a35b76d7cefb2658a01f772915f2fb7686"},
+    {file = "biopython-1.85-cp313-cp313-manylinux_2_5_i686.manylinux1_i686.manylinux_2_17_i686.manylinux2014_i686.whl", hash = "sha256:66b08905fb1b3f5194f908aaf04bbad474c4e3eaebad6d9f889a04e64dd1faf4"},
+    {file = "biopython-1.85-cp313-cp313-win32.whl", hash = "sha256:5a236ab1e2797c7dcf1577d80fdaafabead2908bc338eaed0aa1509dab769fef"},
+    {file = "biopython-1.85-cp313-cp313-win_amd64.whl", hash = "sha256:1b61593765e9ebdb71d73307d55fd4b46eb976608d329ae6803c084d90ed34c7"},
+    {file = "biopython-1.85-cp39-cp39-macosx_10_9_x86_64.whl", hash = "sha256:d76e44b46f555da2e72ac36e757efd327f7f5f690e9f00ede6f723b48538b6d5"},
+    {file = "biopython-1.85-cp39-cp39-macosx_11_0_arm64.whl", hash = "sha256:8469095907a17f156c76b6644829227efdf4996164f7726e6f4ca15039329776"},
+    {file = "biopython-1.85-cp39-cp39-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:cffc15ac46688cd4cf662b24d03037234ce00b571df67be45a942264f101f990"},
+    {file = "biopython-1.85-cp39-cp39-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:9a630b3804f6c3fcae2f9b7485d7a05425e143fc570f25babbc5a4b3d3db00d7"},
+    {file = "biopython-1.85-cp39-cp39-win32.whl", hash = "sha256:0ffb03cd982cb3a79326b84e789f2093880175c44eea10f3030c632f98de24f6"},
+    {file = "biopython-1.85-cp39-cp39-win_amd64.whl", hash = "sha256:8208bf2d87ade066fafe9a63a2eb77486c233bc1bdda2cbf721ebee54715f1bf"},
+    {file = "biopython-1.85.tar.gz", hash = "sha256:5dafab74059de4e78f49f6b5684eddae6e7ce46f09cfa059c1d1339e8b1ea0a6"},
+]
+
+[package.dependencies]
+numpy = "*"
+
+[[package]]
+name = "biothings-client"
+version = "0.4.1"
+description = "Python Client for BioThings API services."
+optional = false
+python-versions = ">=3.6"
+files = [
+    {file = "biothings_client-0.4.1-py3-none-any.whl", hash = "sha256:9cbc17461b2bf6af6ed200929b886d6670d450af2034b428cd833f725695265a"},
+    {file = "biothings_client-0.4.1.tar.gz", hash = "sha256:5b34e09c905280b5bd2538f1f34b6fc780c53c8da9b4074e3ff304836046f613"},
+]
+
+[package.dependencies]
+httpx = ">=0.22.0"
+
+[package.extras]
+caching = ["anysqlite", "hishel[sqlite]"]
+dataframe = ["pandas (>=1.1.5)"]
+jsonld = ["PyLD (>=0.7.2)"]
+tests = ["pytest (>=7.0.1)", "pytest-asyncio (>=0.16.0)"]
+
+[[package]]
 name = "blinker"
 version = "1.9.0"
 description = "Fast, simple object-to-object and broadcast signaling"
@@ -482,6 +566,20 @@ gitdb = ">=4.0.1,<5"
 [package.extras]
 doc = ["sphinx (>=7.1.2,<7.2)", "sphinx-autodoc-typehints", "sphinx_rtd_theme"]
 test = ["coverage[toml]", "ddt (>=1.1.1,!=1.4.3)", "mock", "mypy", "pre-commit", "pytest (>=7.3.1)", "pytest-cov", "pytest-instafail", "pytest-mock", "pytest-sugar", "typing-extensions"]
+
+[[package]]
+name = "gprofiler-official"
+version = "1.0.0"
+description = "Functional enrichment analysis and more via the g:Profiler toolkit"
+optional = false
+python-versions = "*"
+files = [
+    {file = "gprofiler-official-1.0.0.tar.gz", hash = "sha256:5015b47f10fbdcb59c57e342e815c9c07afbe57cd3984154f75b845ddef2445d"},
+    {file = "gprofiler_official-1.0.0-py3-none-any.whl", hash = "sha256:c582baf728e5a6cddac964e4085ca385e082c4ef0279e3af1a16a9af07ab5395"},
+]
+
+[package.dependencies]
+requests = "*"
 
 [[package]]
 name = "greenlet"
@@ -976,6 +1074,20 @@ files = [
 ]
 
 [[package]]
+name = "mygene"
+version = "3.2.2"
+description = "Python Client for MyGene.Info services."
+optional = false
+python-versions = "*"
+files = [
+    {file = "mygene-3.2.2-py2.py3-none-any.whl", hash = "sha256:18d85d1b28ecee2be31d844607fb0c5f7d7c58573278432df819ee2a5e88fe46"},
+    {file = "mygene-3.2.2.tar.gz", hash = "sha256:e729cabbc28cf5afb221bca1ab637883b375cb1a3e2f067587ec79f71affdaea"},
+]
+
+[package.dependencies]
+biothings-client = ">=0.2.6"
+
+[[package]]
 name = "narwhals"
 version = "1.46.0"
 description = "Extremely lightweight compatibility layer between dataframe libraries"
@@ -1429,6 +1541,22 @@ typing = ["typing-extensions"]
 xmp = ["defusedxml"]
 
 [[package]]
+name = "platformdirs"
+version = "4.3.8"
+description = "A small Python package for determining appropriate platform-specific dirs, e.g. a `user data dir`."
+optional = false
+python-versions = ">=3.9"
+files = [
+    {file = "platformdirs-4.3.8-py3-none-any.whl", hash = "sha256:ff7059bb7eb1179e2685604f4aaf157cfd9535242bd23742eadc3c13542139b4"},
+    {file = "platformdirs-4.3.8.tar.gz", hash = "sha256:3d512d96e16bcb959a814c9f348431070822a6496326a4be0911c40b5a74c2bc"},
+]
+
+[package.extras]
+docs = ["furo (>=2024.8.6)", "proselint (>=0.14)", "sphinx (>=8.1.3)", "sphinx-autodoc-typehints (>=3)"]
+test = ["appdirs (==1.4.4)", "covdefaults (>=2.3)", "pytest (>=8.3.4)", "pytest-cov (>=6)", "pytest-mock (>=3.14)"]
+type = ["mypy (>=1.14.1)"]
+
+[[package]]
 name = "pluggy"
 version = "1.6.0"
 description = "plugin and hook calling mechanisms for python"
@@ -1442,6 +1570,27 @@ files = [
 [package.extras]
 dev = ["pre-commit", "tox"]
 testing = ["coverage", "pytest", "pytest-benchmark"]
+
+[[package]]
+name = "pooch"
+version = "1.8.2"
+description = "A friend to fetch your data files"
+optional = false
+python-versions = ">=3.7"
+files = [
+    {file = "pooch-1.8.2-py3-none-any.whl", hash = "sha256:3529a57096f7198778a5ceefd5ac3ef0e4d06a6ddaf9fc2d609b806f25302c47"},
+    {file = "pooch-1.8.2.tar.gz", hash = "sha256:76561f0de68a01da4df6af38e9955c4c9d1a5c90da73f7e40276a5728ec83d10"},
+]
+
+[package.dependencies]
+packaging = ">=20.0"
+platformdirs = ">=2.5.0"
+requests = ">=2.19.0"
+
+[package.extras]
+progress = ["tqdm (>=4.41.0,<5.0.0)"]
+sftp = ["paramiko (>=2.7.0)"]
+xxhash = ["xxhash (>=1.4.3)"]
 
 [[package]]
 name = "protobuf"
@@ -2671,4 +2820,4 @@ cffi = ["cffi (>=1.11)"]
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.10"
-content-hash = "41327cbcf3d8fc20bab234502be350541c0294c6abacde3377664dd7dda02ffc"
+content-hash = "bcf5deda6802cd04fd450b7dc74a89d3592cee16013f4d6528d98742a4d15b85"
