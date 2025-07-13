@@ -13,6 +13,9 @@ openai = "^1.95.1"
 faiss-cpu = "^1.11.0"
 tiktoken = "^0.9.0"
 streamlit = "^1.46.1"
+requests = "^2.32.4"
+pdfplumber = "^0.11.7"
+html2text = "^2025.4.15"
 
 
 [build-system]
