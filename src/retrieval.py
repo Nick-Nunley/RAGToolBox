@@ -3,7 +3,9 @@ import os
 import io
 import requests
 from urllib.parse import urlparse
+from bs4 import BeautifulSoup
 import html2text
+import re
 import pdfplumber
 from Bio import Entrez
 
@@ -104,10 +106,30 @@ class NCBIRetriever(BaseRetriever):
 class HTMLRetriever(BaseRetriever):
 
     def convert(self):
-        """Convert HTML content to markdown-like plain text."""
-        self.text = html2text.html2text(
-            self.raw_content.decode('utf-8', errors = 'ignore')
-        )
+        """Convert HTML content to plain text"""
+        soup = BeautifulSoup(self.raw_content, "html.parser")
+        content_div = soup.find("div", id="mw-content-text")
+        if not content_div:
+            content_div = soup
+        parser_output = content_div.find("div", class_="mw-parser-output")
+        main = parser_output or content_div
+        raw = main.get_text("\n", strip=True)
+        # Remove “[ edit ]” or “[ edit on ]” artifacts
+        raw = re.sub(r"\[\s*edit(?: on )?\s*\]", "", raw, flags=re.IGNORECASE)
+        # Split off References (but keep them)
+        parts = raw.split("\nReferences", maxsplit=1)
+        body = parts[0]
+        refs = parts[1] if len(parts) > 1 else ""
+        # Normalize & collapse blank lines
+        body_lines = [ln.strip() for ln in body.splitlines() if ln.strip()]
+        clean_body = "\n".join(body_lines)
+        if refs:
+            ref_lines = [ln.strip() for ln in refs.splitlines() if ln.strip()]
+            clean_refs = "\n".join(ref_lines)
+            clean = f"{clean_body}\n\nReferences\n{clean_refs}"
+        else:
+            clean = clean_body
+        self.text = html2text.html2text(clean)
 
 class PDFRetriever(BaseRetriever):
 
