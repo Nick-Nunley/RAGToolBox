@@ -206,6 +206,3 @@ def test_full_process_ncbi(monkeypatch, tmp_path):
     assert out_file.exists()
     content = out_file.read_text(encoding='utf-8')
     assert 'Integration abstract text' in content
-
-def test_intentional_failure():
-    assert False, "This failure is intentional to prove CI breaks on non-zero exit"
