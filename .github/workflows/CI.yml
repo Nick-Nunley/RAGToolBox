@@ -30,7 +30,7 @@ jobs:
 
       # 4) Install dependencies
       - name: Install dependencies
-        run: poetry install --no-interaction --no-ansi
+        run: poetry install --no-interaction --no-ansi --no-root
 
       # 5) Run tests
       - name: Run pytest
