@@ -110,6 +110,12 @@ class HTMLRetriever(BaseRetriever):
         super().__init__(url, output_dir)
         self._USE_READABILITY = use_readability
 
+    def _slugify(self, text: str, maxlen: int = 80) -> str:
+        text = text.strip().lower()
+        text = re.sub(r'[^\w\s-]', '', text)
+        text = re.sub(r'[-\s]+', '-', text)
+        return text[:maxlen].rstrip('-')
+
     def _find_main_container(self, soup: BeautifulSoup) -> BeautifulSoup:
         # Known “content” containers
         for sel in (
@@ -156,6 +162,38 @@ class HTMLRetriever(BaseRetriever):
             clean += "\n\nReferences\n" + self._clean_lines(refs)
         # 5) Markdown conversion (optional)
         self.text = html2text.html2text(clean)
+
+    def _extract_title(self, html: bytes) -> str:
+        soup = BeautifulSoup(html, "html.parser")
+        # 1) try citation_title
+        meta = soup.find("meta", {"name": "citation_title"})
+        if meta and meta.get("content"):
+            return meta["content"]
+        # 2) try OpenGraph
+        og = soup.find("meta", {"property": "og:title"})
+        if og and og.get("content"):
+            return og["content"]
+        # 3) fallback to <title>
+        if soup.title and soup.title.string:
+            return soup.title.string
+        return ""
+
+    def save(self) -> None:
+        os.makedirs(self.output_dir, exist_ok=True)
+        # Try extracting a real title:
+        title = self._extract_title(self.raw_content)  
+        if title:
+            name = self._slugify(title)
+        else:
+            # Fallback to base class logic
+            parsed = urlparse(self.url)
+            basename = os.path.basename(parsed.path) or "document"
+            name = os.path.splitext(basename)[0]
+        filename = f"{name}.txt"
+        out_path = os.path.join(self.output_dir, filename)
+        with open(out_path, 'w', encoding='utf-8') as f:
+            f.write(self.text)
+        print(f"Saved plain text to {out_path}")
 
 class PDFRetriever(BaseRetriever):
 
