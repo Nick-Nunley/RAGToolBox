@@ -106,6 +106,10 @@ class NCBIRetriever(BaseRetriever):
 
 class HTMLRetriever(BaseRetriever):
 
+    def __init__(self, url, output_dir, use_readability: bool = False):
+        super().__init__(url, output_dir)
+        self._USE_READABILITY = use_readability
+
     def _find_main_container(self, soup: BeautifulSoup) -> BeautifulSoup:
         # Known “content” containers
         for sel in (
@@ -136,7 +140,7 @@ class HTMLRetriever(BaseRetriever):
         soup = BeautifulSoup(html, "html.parser")
         # 1) Find the best container
         main = self._find_main_container(soup)
-        # 2) (Optional) Readability fallback
+        # 2) Readability fallback
         text_blob = main.get_text("\n", strip=True)
         if len(text_blob) < 200 and self._USE_READABILITY:
             doc = Document(html.decode("utf-8", errors="ignore"))
@@ -194,8 +198,14 @@ def main() -> None:
         '--email', '-e', help='Email address for NCBI E-utilities',
         default=os.getenv('NCBI_EMAIL')
     )
+    parser.add_argument(
+        '--use-readability',
+        action='store_true',
+        help='If set, HTMLRetriever will fall back to Readability when the extracted text is short'
+    )
     args = parser.parse_args()
 
+    HTMLRetriever._USE_READABILITY = args.use_readability
     # Set Entrez email if provided
     if args.email:
         Entrez.email = args.email
