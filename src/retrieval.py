@@ -5,6 +5,7 @@ import requests
 from urllib.parse import urlparse
 from bs4 import BeautifulSoup
 import html2text
+from readability import Document
 import re
 import pdfplumber
 from Bio import Entrez
@@ -105,35 +106,56 @@ class NCBIRetriever(BaseRetriever):
 
 class HTMLRetriever(BaseRetriever):
 
-    def convert(self):
-        """Convert HTML content to plain text"""
-        soup = BeautifulSoup(self.raw_content, "html.parser")
-        content_div = soup.find("div", id="mw-content-text")
-        if not content_div:
-            content_div = soup
-        parser_output = content_div.find("div", class_="mw-parser-output")
-        main = parser_output or content_div
+    def _find_main_container(self, soup: BeautifulSoup) -> BeautifulSoup:
+        # Known “content” containers
+        for sel in (
+            "#mw-content-text",
+            "div#content",
+            "div.main-content",
+            "div.article-content",
+            "div#__nuxt",
+            "div#root",
+            ):
+            el = soup.select_one(sel)
+            if el:
+                return el
+        # HTML5 semantic
+        for tag in ("article", "main"):
+            el = soup.find(tag)
+            if el and el.find("p"):
+                return el
+        # Fallback on the whole soup
+        return soup
+
+    def _clean_lines(self, text_block: str) -> str:
+        return "\n".join(line.strip() for line in text_block.splitlines() if line.strip())
+
+    def convert(self) -> None:
+        """Extract only the main article text + references, generically across sites."""
+        html = self.raw_content
+        soup = BeautifulSoup(html, "html.parser")
+        # 1) Find the best container
+        main = self._find_main_container(soup)
+        # 2) (Optional) Readability fallback
+        text_blob = main.get_text("\n", strip=True)
+        if len(text_blob) < 200 and self._USE_READABILITY:
+            doc = Document(html.decode("utf-8", errors="ignore"))
+            soup = BeautifulSoup(doc.summary(), "html.parser")
+            main = soup
+        # 3) Pull text and strip UI cruft
         raw = main.get_text("\n", strip=True)
-        # Remove “[ edit ]” or “[ edit on ]” artifacts
-        raw = re.sub(r"\[\s*edit(?: on )?\s*\]", "", raw, flags=re.IGNORECASE)
-        # Split off References (but keep them)
-        parts = raw.split("\nReferences", maxsplit=1)
-        body = parts[0]
-        refs = parts[1] if len(parts) > 1 else ""
-        # Normalize & collapse blank lines
-        body_lines = [ln.strip() for ln in body.splitlines() if ln.strip()]
-        clean_body = "\n".join(body_lines)
+        raw = re.sub(r"\[\s*edit(?: on [^\]]*)?\s*\]", "", raw, flags=re.IGNORECASE)
+        # 4) Split and clean body + references
+        body, refs = raw.split("\nReferences", 1) if "\nReferences" in raw else (raw, "")
+        clean = self._clean_lines(body)
         if refs:
-            ref_lines = [ln.strip() for ln in refs.splitlines() if ln.strip()]
-            clean_refs = "\n".join(ref_lines)
-            clean = f"{clean_body}\n\nReferences\n{clean_refs}"
-        else:
-            clean = clean_body
+            clean += "\n\nReferences\n" + self._clean_lines(refs)
+        # 5) Markdown conversion (optional)
         self.text = html2text.html2text(clean)
 
 class PDFRetriever(BaseRetriever):
 
-    def convert(self):
+    def convert(self) -> None:
         """Extract text from each page of a PDF."""
         text_chunks = []
         with pdfplumber.open(io.BytesIO(self.raw_content)) as pdf:
@@ -145,19 +167,19 @@ class PDFRetriever(BaseRetriever):
 
 class TextRetriever(BaseRetriever):
 
-    def convert(self):
+    def convert(self) -> None:
         """Decode raw bytes as UTF-8 text."""
         self.text = self.raw_content.decode('utf-8', errors = 'ignore')
 
 class UnknownRetriever(BaseRetriever):
 
-    def convert(self):
+    def convert(self) -> None:
         """Handle unknown formats gracefully by skipping."""
         print(f"Unknown format for URL: {self.url}")
         self.text = ''
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(
         description="Fetch multiple URLs and convert content to plain text for chunking"
     )
