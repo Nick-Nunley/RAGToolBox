@@ -1,0 +1,37 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request: {}
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: [3.10]
+    steps:
+      # 1) Check out your repository
+      - uses: actions/checkout@v3
+
+      # 2) Set up Python
+      - uses: actions/setup-python@v4
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      # 3) Install Poetry
+      - name: Install Poetry
+        run: |
+          curl -sSL https://install.python-poetry.org | python3 -
+          # Tell Poetry to install into the current env (so we don't end up in another venv)
+          poetry config virtualenvs.create false --local
+
+      # 4) Install dependencies
+      - name: Install dependencies
+        run: poetry install --no-interaction --no-ansi
+
+      # 5) Run tests
+      - name: Run pytest
+        run: bash tests/Run_tests.sh
