@@ -19,7 +19,6 @@ html2text = "^2025.4.15"
 pytest = "^8.4.1"
 bio = "^1.8.0"
 bs4 = "^0.0.2"
-readability = "^0.3.2"
 readability-lxml = "^0.8.4.1"
 
 

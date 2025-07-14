@@ -2170,16 +2170,6 @@ files = [
 ]
 
 [[package]]
-name = "readability"
-version = "0.3.2"
-description = "Measure the readability of a given text using surface characteristics"
-optional = false
-python-versions = "*"
-files = [
-    {file = "readability-0.3.2.tar.gz", hash = "sha256:5aace888855cb3ef1b7dd059e41bbc6ac1f7daba321b2d24062ca75fdf6e576d"},
-]
-
-[[package]]
 name = "readability-lxml"
 version = "0.8.4.1"
 description = "fast html to text parser (article readability tool) with python 3 support"
@@ -3045,4 +3035,4 @@ cffi = ["cffi (>=1.11)"]
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.10"
-content-hash = "759bb4874456e05946de7dd92d01e86d95dcc66df14f36c5a5a95fdf5ec7c1ad"
+content-hash = "af01cd259d981a9c5e674754187c83be7f621f5609277a53cc028dd37fcfe510"
