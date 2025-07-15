@@ -37,6 +37,10 @@ jobs:
       - name: Install dependencies
         run: poetry install --no-interaction --no-ansi --no-root
 
-      # 5) Run tests
+      # 5) Download punkt
+      - name: Download punkt
+        run: bash src/Download_punkt.sh
+
+      # 6) Run tests
       - name: Run pytest
         run: bash tests/Run_tests.sh
