@@ -5,6 +5,7 @@ import requests
 import html2text
 import pdfplumber
 from Bio import Entrez
+from typing import Any, Callable
 
 from retrieval import (
     BaseRetriever,
@@ -17,84 +18,82 @@ from retrieval import (
 
 # Helpers and Mocks
 class DummyPage:
-
-    def __init__(self, text):
+    def __init__(self, text: str) -> None:
         self._text = text
-    def extract_text(self):
+    def extract_text(self) -> str:
         return self._text
 
 class DummyPDF:
-
-    def __init__(self, pages):
+    def __init__(self, pages: list) -> None:
         self.pages = pages
-    def __enter__(self):
+    def __enter__(self) -> 'DummyPDF':
         return self
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> bool:
         return False
 
 class DummyResponse:
-
-    def __init__(self, content, status_code=200):
+    def __init__(self, content: bytes, status_code: int = 200) -> None:
         self.content = content
         self.status_code = status_code
-    def raise_for_status(self):
+    def raise_for_status(self) -> None:
         if self.status_code != 200:
             raise requests.HTTPError(f"Status code: {self.status_code}")
 
 class DummyHandle:
-
-    def __init__(self, text):
+    def __init__(self, text: bytes) -> None:
         self._text = text
-    def read(self):
+    def read(self) -> bytes:
         return self._text
-    def close(self):
+    def close(self) -> None:
         pass
 
 
 # Unit tests
-def test_detect_retriever_txt():
+def test_detect_retriever_txt() -> None:
     cls = BaseRetriever.detect_retriever('http://example.com/file.txt', b'hello')
     assert cls is TextRetriever
 
-def test_detect_retriever_md():
+def test_detect_retriever_md() -> None:
     cls = BaseRetriever.detect_retriever('http://example.com/file.md', b'')
     assert cls is TextRetriever
 
-def test_detect_retriever_html():
+def test_detect_retriever_html() -> None:
     cls = BaseRetriever.detect_retriever('http://example.com/index.html', b'<html>')
     assert cls is HTMLRetriever
 
-def test_detect_retriever_pdf():
+def test_detect_retriever_pdf() -> None:
     cls = BaseRetriever.detect_retriever('http://example.com/doc.pdf', b'%PDF')
     assert cls is PDFRetriever
 
-def test_detect_retriever_unknown():
+def test_detect_retriever_unknown() -> None:
     cls = BaseRetriever.detect_retriever('http://example.com/archive.zip', b'PK')
     assert cls is UnknownRetriever
 
-def test_detect_retriever_ncbi():
+def test_detect_retriever_ncbi() -> None:
     url = 'https://pmc.ncbi.nlm.nih.gov/articles/PMC123456/'
     cls = BaseRetriever.detect_retriever(url, b'ignored')
     assert cls is NCBIRetriever
 
-def test_ncbi_retriever_fetch_success(monkeypatch):
+def test_ncbi_retriever_fetch_success(monkeypatch: Any) -> None:
     calls = []
-    def dummy_efetch(db, id, rettype, retmode):
+    def dummy_efetch(db: str, id: str, rettype: str, retmode: str) -> DummyHandle:
         calls.append((db, id, rettype, retmode))
-        return DummyHandle('Abstract text')
+        # Minimal valid PMC XML with an abstract
+        xml = b'<?xml version="1.0"?><article><abstract>Abstract text</abstract></article>'
+        return DummyHandle(xml)
     monkeypatch.setattr(Entrez, 'efetch', dummy_efetch)
 
     url = 'https://pmc.ncbi.nlm.nih.gov/articles/PMC999999/'
     retr = NCBIRetriever(url, 'out')
     retr.fetch()
-    assert retr.raw_content == b'Abstract text'
+    assert b'Abstract text' in retr.raw_content
 
     retr.convert()
-    assert retr.text == 'Abstract text'
-    assert calls[0] == ('pmc', 'PMC999999', 'abstract', 'text')
+    assert 'Abstract text' in retr.text
+    assert calls[0] == ('pmc', 'PMC999999', 'full', 'xml')
 
-def test_ncbi_retriever_fetch_failure(monkeypatch):
-    def dummy_efetch(db, id, rettype, retmode):
+def test_ncbi_retriever_fetch_failure(monkeypatch: Any) -> None:
+    def dummy_efetch(db: str, id: str, rettype: str, retmode: str) -> None:
         raise Exception('NCBI down')
     monkeypatch.setattr(Entrez, 'efetch', dummy_efetch)
 
@@ -104,13 +103,13 @@ def test_ncbi_retriever_fetch_failure(monkeypatch):
         retr.fetch()
     assert 'Entrez fetch failed for PMC000000' in str(exc.value)
 
-def test_text_retriever_convert():
+def test_text_retriever_convert() -> None:
     tr = TextRetriever('http://example.com/test.txt', 'out')
     tr.raw_content = 'Hello, World!'.encode('utf-8')
     tr.convert()
     assert tr.text == 'Hello, World!'
 
-def test_html_retriever_convert():
+def test_html_retriever_convert() -> None:
     html = '<html><body><h1>Hi</h1><p>Para</p></body></html>'
     hr = HTMLRetriever('http://example.com/index.html', 'out')
     hr.raw_content = html.encode('utf-8')
@@ -119,7 +118,7 @@ def test_html_retriever_convert():
     assert 'Hi' in hr.text
     assert 'Para' in hr.text
 
-def test_pdf_retriever_convert(monkeypatch):
+def test_pdf_retriever_convert(monkeypatch: Any) -> None:
     # Mock pdfplumber.open to return DummyPDF with pages
     pages = [DummyPage('Page1'), DummyPage('Page2')]
     monkeypatch.setattr(pdfplumber, 'open', lambda _: DummyPDF(pages))
@@ -129,7 +128,7 @@ def test_pdf_retriever_convert(monkeypatch):
     assert 'Page1' in pr.text
     assert 'Page2' in pr.text
 
-def test_unknown_retriever_convert(capsys):
+def test_unknown_retriever_convert(capsys: Any) -> None:
     ur = UnknownRetriever('http://example.com/file.xyz', 'out')
     ur.raw_content = b''
     ur.convert()
@@ -137,7 +136,7 @@ def test_unknown_retriever_convert(capsys):
     assert 'Unknown format' in captured.out
     assert ur.text == ''
 
-def test_save(tmp_path):
+def test_save(tmp_path: Any) -> None:
     tr = TextRetriever('http://example.com/one.txt', tmp_path)
     tr.text = 'TestSave'
     tr.save()
@@ -146,7 +145,7 @@ def test_save(tmp_path):
     assert out_file.read_text(encoding='utf-8') == 'TestSave'
 
 # Integration tests
-def test_full_process_text(monkeypatch, tmp_path):
+def test_full_process_text(monkeypatch: Any, tmp_path: Any) -> None:
     # Mock requests.get for a TXT URL
     monkeypatch.setattr(requests, 'get', lambda url: DummyResponse(b'Some text content'))
     url = 'http://example.com/data.txt'
@@ -159,7 +158,7 @@ def test_full_process_text(monkeypatch, tmp_path):
     assert out_file.exists()
     assert 'Some text content' in out_file.read_text(encoding='utf-8')
 
-def test_full_process_html(monkeypatch, tmp_path):
+def test_full_process_html(monkeypatch: Any, tmp_path: Any) -> None:
     html = '<html><body><p>Hello HTML</p></body></html>'
     monkeypatch.setattr(requests, 'get', lambda url: DummyResponse(html.encode('utf-8')))
     url = 'http://example.com/page.html'
@@ -172,7 +171,7 @@ def test_full_process_html(monkeypatch, tmp_path):
     assert out_file.exists()
     assert 'Hello HTML' in out_file.read_text(encoding='utf-8')
 
-def test_full_process_pdf(monkeypatch, tmp_path):
+def test_full_process_pdf(monkeypatch: Any, tmp_path: Any) -> None:
     # Mock requests.get and pdfplumber.open
     monkeypatch.setattr(requests, 'get', lambda url: DummyResponse(b'%PDF dummy content'))
     pages = [DummyPage('X'), DummyPage('Y')]
@@ -189,14 +188,15 @@ def test_full_process_pdf(monkeypatch, tmp_path):
     assert 'X' in text
     assert 'Y' in text
 
-def test_full_process_ncbi(monkeypatch, tmp_path):
-    # Monkeypatch efetch to return dummy abstract text
+def test_full_process_pmc(monkeypatch: Any, tmp_path: Any) -> None:
+    # Monkeypatch efetch to return dummy PMC XML with an abstract
     class DummyHandle2:
-        def __init__(self, text): self._text = text
-        def read(self): return self._text
-        def close(self): pass
+        def __init__(self, text: bytes) -> None: self._text = text
+        def read(self) -> bytes: return self._text
+        def close(self) -> None: pass
 
-    monkeypatch.setattr(Entrez, 'efetch', lambda db, id, rettype, retmode: DummyHandle2('Integration abstract text'))
+    xml = b'<?xml version="1.0"?><article><abstract>Integration abstract text</abstract></article>'
+    monkeypatch.setattr(Entrez, 'efetch', lambda db, id, rettype, retmode: DummyHandle2(xml))
     url = 'https://pmc.ncbi.nlm.nih.gov/articles/PMC111111/'
     RetrieverClass = BaseRetriever.detect_retriever(url, b'ignored')
     retr = RetrieverClass(url, str(tmp_path))
@@ -206,3 +206,43 @@ def test_full_process_ncbi(monkeypatch, tmp_path):
     assert out_file.exists()
     content = out_file.read_text(encoding='utf-8')
     assert 'Integration abstract text' in content
+
+def test_full_process_pubmed(monkeypatch: Any, tmp_path: Any) -> None:
+    # Monkeypatch efetch to return dummy PubMed XML with an abstract and title
+    class DummyHandle2:
+        def __init__(self, text: bytes) -> None: self._text = text
+        def read(self) -> bytes: return self._text
+        def close(self) -> None: pass
+
+    xml = b'''<?xml version="1.0"?>
+    <PubmedArticleSet>
+      <PubmedArticle>
+        <MedlineCitation>
+          <Article>
+            <ArticleTitle>Test PubMed Article</ArticleTitle>
+            <Abstract><AbstractText>PubMed abstract text</AbstractText></Abstract>
+            <AuthorList>
+              <Author>
+                <LastName>Smith</LastName>
+                <ForeName>Jane</ForeName>
+              </Author>
+            </AuthorList>
+            <Journal><Title>Test Journal</Title></Journal>
+            <ELocationID EIdType="doi">10.1234/testdoi</ELocationID>
+          </Article>
+        </MedlineCitation>
+      </PubmedArticle>
+    </PubmedArticleSet>'''
+    monkeypatch.setattr(Entrez, 'efetch', lambda db, id, rettype, retmode: DummyHandle2(xml))
+    url = 'https://pubmed.ncbi.nlm.nih.gov/123456/'
+    RetrieverClass = BaseRetriever.detect_retriever(url, b'ignored')
+    retr = RetrieverClass(url, str(tmp_path))
+    retr.process()
+    out_file = tmp_path / '123456.txt'
+    assert out_file.exists()
+    content = out_file.read_text(encoding='utf-8')
+    assert 'Test PubMed Article' in content
+    assert 'PubMed abstract text' in content
+    assert 'Jane Smith' in content
+    assert 'Test Journal' in content
+    assert '10.1234/testdoi' in content
