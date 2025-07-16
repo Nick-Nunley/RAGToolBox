@@ -13,7 +13,7 @@ import xml.etree.ElementTree as ET
 from typing import Optional, Dict, Any, List, Union
 
 
-class BaseRetriever:
+class BaseLoader:
     """
     Abstract base class for fetching, converting, and saving content from a URL.
     """
@@ -35,23 +35,23 @@ class BaseRetriever:
         self.raw_content = response.content
 
     @staticmethod
-    def detect_retriever(url: str, content: bytes) -> type:
+    def detect_loader(url: str, content: bytes) -> type:
         """
-        Factory method to select the appropriate Retriever subclass.
+        Factory method to select the appropriate Loader subclass.
         """
         path = urlparse(url).path.lower()
         ext = os.path.splitext(path)[1]
         head = content[:512].lstrip().lower()
 
         if 'ncbi.nlm.nih.gov' in urlparse(url).netloc:
-            return NCBIRetriever
+            return NCBILoader
         if ext in ['.html', '.htm'] or head.startswith(b'<html') or head.startswith(b'<!doctype html'):
-            return HTMLRetriever
+            return HTMLLoader
         if ext == '.pdf':
-            return PDFRetriever
+            return PDFLoader
         if ext in ['.txt', '.md']:
-            return TextRetriever
-        return UnknownRetriever
+            return TextLoader
+        return UnknownLoader
 
     def convert(self) -> None:
         """Convert raw content bytes to plain text. Implemented by subclasses."""
@@ -78,7 +78,7 @@ class BaseRetriever:
         else:
             print(f"Warning: No text extracted from {self.url}")
 
-class NCBIRetriever(BaseRetriever):
+class NCBILoader(BaseLoader):
     pmc_id: str
     _used_pdf: bool
     article_data: Optional[Dict[str, Any]]
@@ -119,10 +119,10 @@ class NCBIRetriever(BaseRetriever):
             print(f"PDF link found for {pmc_id}: {pdf_url}\nAttempting to download and extract text from PDF.")
             try:
                 pdf_bytes = self._download_pdf(pdf_url)
-                pdf_retriever = PDFRetriever(self.url, self.output_dir)
-                pdf_retriever.raw_content = pdf_bytes
-                pdf_retriever.convert()
-                self.text = pdf_retriever.text
+                pdf_loader = PDFLoader(self.url, self.output_dir)
+                pdf_loader.raw_content = pdf_bytes
+                pdf_loader.convert()
+                self.text = pdf_loader.text
                 self._used_pdf = True
                 return
             except Exception as e:
@@ -337,7 +337,7 @@ class NCBIRetriever(BaseRetriever):
             f.write(self.text)
         print(f"Saved plain text to {out_path}")
 
-class HTMLRetriever(BaseRetriever):
+class HTMLLoader(BaseLoader):
 
     def __init__(self, url, output_dir, use_readability: bool = False):
         super().__init__(url, output_dir)
@@ -428,7 +428,7 @@ class HTMLRetriever(BaseRetriever):
             f.write(self.text)
         print(f"Saved plain text to {out_path}")
 
-class PDFRetriever(BaseRetriever):
+class PDFLoader(BaseLoader):
 
     def convert(self) -> None:
         """Extract text from each page of a PDF."""
@@ -440,13 +440,13 @@ class PDFRetriever(BaseRetriever):
                     text_chunks.append(txt)
         self.text = "\n".join(text_chunks)
 
-class TextRetriever(BaseRetriever):
+class TextLoader(BaseLoader):
 
     def convert(self) -> None:
         """Decode raw bytes as UTF-8 text."""
         self.text = self.raw_content.decode('utf-8', errors = 'ignore')
 
-class UnknownRetriever(BaseRetriever):
+class UnknownLoader(BaseLoader):
 
     def convert(self) -> None:
         """Handle unknown formats gracefully by skipping."""
@@ -476,7 +476,7 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    HTMLRetriever._USE_READABILITY = args.use_readability
+    HTMLLoader._USE_READABILITY = args.use_readability
     # Set Entrez email if provided
     if args.email:
         Entrez.email = args.email
@@ -491,10 +491,10 @@ def main() -> None:
             print(f"Failed to fetch {url}: {e}")
             continue
 
-        RetrieverClass = BaseRetriever.detect_retriever(url, raw)
-        retriever = RetrieverClass(url, args.output_dir)
-        retriever.raw_content = raw
-        retriever.process()
+        LoaderClass = BaseLoader.detect_loader(url, raw)
+        loader = LoaderClass(url, args.output_dir)
+        loader.raw_content = raw
+        loader.process()
 
 if __name__ == '__main__':
 

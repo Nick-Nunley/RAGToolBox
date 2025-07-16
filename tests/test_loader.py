@@ -7,13 +7,13 @@ import pdfplumber
 from Bio import Entrez
 from typing import Any, Callable
 
-from src.retrieval import (
-    BaseRetriever,
-    NCBIRetriever,
-    TextRetriever,
-    HTMLRetriever,
-    PDFRetriever,
-    UnknownRetriever
+from src.loader import (
+    BaseLoader,
+    NCBILoader,
+    TextLoader,
+    HTMLLoader,
+    PDFLoader,
+    UnknownLoader
     )
 
 # Helpers and Mocks
@@ -49,32 +49,32 @@ class DummyHandle:
 
 
 # Unit tests
-def test_detect_retriever_txt() -> None:
-    cls = BaseRetriever.detect_retriever('http://example.com/file.txt', b'hello')
-    assert cls is TextRetriever
+def test_detect_loader_txt() -> None:
+    cls = BaseLoader.detect_loader('http://example.com/file.txt', b'hello')
+    assert cls is TextLoader
 
-def test_detect_retriever_md() -> None:
-    cls = BaseRetriever.detect_retriever('http://example.com/file.md', b'')
-    assert cls is TextRetriever
+def test_detect_loader_md() -> None:
+    cls = BaseLoader.detect_loader('http://example.com/file.md', b'')
+    assert cls is TextLoader
 
-def test_detect_retriever_html() -> None:
-    cls = BaseRetriever.detect_retriever('http://example.com/index.html', b'<html>')
-    assert cls is HTMLRetriever
+def test_detect_loader_html() -> None:
+    cls = BaseLoader.detect_loader('http://example.com/index.html', b'<html>')
+    assert cls is HTMLLoader
 
-def test_detect_retriever_pdf() -> None:
-    cls = BaseRetriever.detect_retriever('http://example.com/doc.pdf', b'%PDF')
-    assert cls is PDFRetriever
+def test_detect_loader_pdf() -> None:
+    cls = BaseLoader.detect_loader('http://example.com/doc.pdf', b'%PDF')
+    assert cls is PDFLoader
 
-def test_detect_retriever_unknown() -> None:
-    cls = BaseRetriever.detect_retriever('http://example.com/archive.zip', b'PK')
-    assert cls is UnknownRetriever
+def test_detect_loader_unknown() -> None:
+    cls = BaseLoader.detect_loader('http://example.com/archive.zip', b'PK')
+    assert cls is UnknownLoader
 
-def test_detect_retriever_ncbi() -> None:
+def test_detect_loader_ncbi() -> None:
     url = 'https://pmc.ncbi.nlm.nih.gov/articles/PMC123456/'
-    cls = BaseRetriever.detect_retriever(url, b'ignored')
-    assert cls is NCBIRetriever
+    cls = BaseLoader.detect_loader(url, b'ignored')
+    assert cls is NCBILoader
 
-def test_ncbi_retriever_fetch_success(monkeypatch: Any) -> None:
+def test_ncbi_loader_fetch_success(monkeypatch: Any) -> None:
     calls = []
     def dummy_efetch(db: str, id: str, rettype: str, retmode: str) -> DummyHandle:
         calls.append((db, id, rettype, retmode))
@@ -84,53 +84,53 @@ def test_ncbi_retriever_fetch_success(monkeypatch: Any) -> None:
     monkeypatch.setattr(Entrez, 'efetch', dummy_efetch)
 
     url = 'https://pmc.ncbi.nlm.nih.gov/articles/PMC999999/'
-    retr = NCBIRetriever(url, 'out')
-    retr.fetch()
-    assert retr.raw_content is not None
-    assert b'Abstract text' in retr.raw_content # type: ignore[union-attr]
+    loader = NCBILoader(url, 'out')
+    loader.fetch()
+    assert loader.raw_content is not None
+    assert b'Abstract text' in loader.raw_content # type: ignore[union-attr]
 
-    retr.convert()
-    assert 'Abstract text' in retr.text
+    loader.convert()
+    assert 'Abstract text' in loader.text
     assert calls[0] == ('pmc', 'PMC999999', 'full', 'xml')
 
-def test_ncbi_retriever_fetch_failure(monkeypatch: Any) -> None:
+def test_ncbi_loader_fetch_failure(monkeypatch: Any) -> None:
     def dummy_efetch(db: str, id: str, rettype: str, retmode: str) -> None:
         raise Exception('NCBI down')
     monkeypatch.setattr(Entrez, 'efetch', dummy_efetch)
 
     url = 'https://pmc.ncbi.nlm.nih.gov/articles/PMC000000/'
-    retr = NCBIRetriever(url, 'out')
+    loader = NCBILoader(url, 'out')
     with pytest.raises(RuntimeError) as exc:
-        retr.fetch()
+        loader.fetch()
     assert 'Entrez fetch failed for PMC000000' in str(exc.value)
 
-def test_text_retriever_convert() -> None:
-    tr = TextRetriever('http://example.com/test.txt', 'out')
+def test_text_loader_convert() -> None:
+    tr = TextLoader('http://example.com/test.txt', 'out')
     tr.raw_content = 'Hello, World!'.encode('utf-8')
     tr.convert()
     assert tr.text == 'Hello, World!'
 
-def test_html_retriever_convert() -> None:
+def test_html_loader_convert() -> None:
     html = '<html><body><h1>Hi</h1><p>Para</p></body></html>'
-    hr = HTMLRetriever('http://example.com/index.html', 'out')
+    hr = HTMLLoader('http://example.com/index.html', 'out')
     hr.raw_content = html.encode('utf-8')
     hr.convert()
     # Should contain markdown headings and paragraph text
     assert 'Hi' in hr.text
     assert 'Para' in hr.text
 
-def test_pdf_retriever_convert(monkeypatch: Any) -> None:
+def test_pdf_loader_convert(monkeypatch: Any) -> None:
     # Mock pdfplumber.open to return DummyPDF with pages
     pages = [DummyPage('Page1'), DummyPage('Page2')]
     monkeypatch.setattr(pdfplumber, 'open', lambda _: DummyPDF(pages))
-    pr = PDFRetriever('http://example.com/doc.pdf', 'out')
+    pr = PDFLoader('http://example.com/doc.pdf', 'out')
     pr.raw_content = b'%PDF-1.4 dummy'
     pr.convert()
     assert 'Page1' in pr.text
     assert 'Page2' in pr.text
 
-def test_unknown_retriever_convert(capsys: Any) -> None:
-    ur = UnknownRetriever('http://example.com/file.xyz', 'out')
+def test_unknown_loader_convert(capsys: Any) -> None:
+    ur = UnknownLoader('http://example.com/file.xyz', 'out')
     ur.raw_content = b''
     ur.convert()
     captured = capsys.readouterr()
@@ -138,7 +138,7 @@ def test_unknown_retriever_convert(capsys: Any) -> None:
     assert ur.text == ''
 
 def test_save(tmp_path: Any) -> None:
-    tr = TextRetriever('http://example.com/one.txt', tmp_path)
+    tr = TextLoader('http://example.com/one.txt', tmp_path)
     tr.text = 'TestSave'
     tr.save()
     out_file = tmp_path / 'one.txt'
@@ -151,9 +151,9 @@ def test_full_process_text(monkeypatch: Any, tmp_path: Any) -> None:
     monkeypatch.setattr(requests, 'get', lambda url: DummyResponse(b'Some text content'))
     url = 'http://example.com/data.txt'
 
-    RetrieverClass = BaseRetriever.detect_retriever(url, b'some')
-    retr = RetrieverClass(url, str(tmp_path))
-    retr.process()
+    LoaderClass = BaseLoader.detect_loader(url, b'some')
+    loader = LoaderClass(url, str(tmp_path))
+    loader.process()
 
     out_file = tmp_path / 'data.txt'
     assert out_file.exists()
@@ -164,9 +164,9 @@ def test_full_process_html(monkeypatch: Any, tmp_path: Any) -> None:
     monkeypatch.setattr(requests, 'get', lambda url: DummyResponse(html.encode('utf-8')))
     url = 'http://example.com/page.html'
 
-    RetrieverClass = BaseRetriever.detect_retriever(url, html.encode('utf-8'))
-    retr = RetrieverClass(url, str(tmp_path))
-    retr.process()
+    LoaderClass = BaseLoader.detect_loader(url, html.encode('utf-8'))
+    loader = LoaderClass(url, str(tmp_path))
+    loader.process()
 
     out_file = tmp_path / 'page.txt'
     assert out_file.exists()
@@ -179,9 +179,9 @@ def test_full_process_pdf(monkeypatch: Any, tmp_path: Any) -> None:
     monkeypatch.setattr(pdfplumber, 'open', lambda _: DummyPDF(pages))
 
     url = 'http://example.com/report.pdf'
-    RetrieverClass = BaseRetriever.detect_retriever(url, b'%PDF')
-    retr = RetrieverClass(url, str(tmp_path))
-    retr.process()
+    LoaderClass = BaseLoader.detect_loader(url, b'%PDF')
+    loader = LoaderClass(url, str(tmp_path))
+    loader.process()
 
     out_file = tmp_path / 'report.txt'
     assert out_file.exists()
@@ -199,9 +199,9 @@ def test_full_process_pmc(monkeypatch: Any, tmp_path: Any) -> None:
     xml = b'<?xml version="1.0"?><article><abstract>Integration abstract text</abstract></article>'
     monkeypatch.setattr(Entrez, 'efetch', lambda db, id, rettype, retmode: DummyHandle2(xml))
     url = 'https://pmc.ncbi.nlm.nih.gov/articles/PMC111111/'
-    RetrieverClass = BaseRetriever.detect_retriever(url, b'ignored')
-    retr = RetrieverClass(url, str(tmp_path))
-    retr.process()
+    LoaderClass = BaseLoader.detect_loader(url, b'ignored')
+    loader = LoaderClass(url, str(tmp_path))
+    loader.process()
     # Check that file was created and contains the abstract
     out_file = tmp_path / 'PMC111111.txt'
     assert out_file.exists()
@@ -236,9 +236,9 @@ def test_full_process_pubmed(monkeypatch: Any, tmp_path: Any) -> None:
     </PubmedArticleSet>'''
     monkeypatch.setattr(Entrez, 'efetch', lambda db, id, rettype, retmode: DummyHandle2(xml))
     url = 'https://pubmed.ncbi.nlm.nih.gov/123456/'
-    RetrieverClass = BaseRetriever.detect_retriever(url, b'ignored')
-    retr = RetrieverClass(url, str(tmp_path))
-    retr.process()
+    LoaderClass = BaseLoader.detect_loader(url, b'ignored')
+    loader = LoaderClass(url, str(tmp_path))
+    loader.process()
     out_file = tmp_path / '123456.txt'
     assert out_file.exists()
     content = out_file.read_text(encoding='utf-8')
