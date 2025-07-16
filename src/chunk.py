@@ -93,3 +93,22 @@ class SlidingWindowChunker(Chunker):
                 start = end
         
         return chunks
+
+class HierarchicalChunker(Chunker):
+    """
+    Applies a sequence of chunkers hierarchically. The output of one chunker is fed as input to the next.
+    Useful for multi-stage chunking (e.g., paragraph -> sliding window).
+    """
+    def __init__(self, chunkers: List[Chunker]):
+        if not chunkers:
+            raise ValueError("At least one chunker must be provided")
+        self.chunkers = chunkers
+
+    def chunk(self, text: str) -> List[str]:
+        chunks = [text]
+        for chunker in self.chunkers:
+            new_chunks = []
+            for chunk in chunks:
+                new_chunks.extend(chunker.chunk(chunk))
+            chunks = new_chunks
+        return chunks
