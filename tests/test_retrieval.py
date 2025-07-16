@@ -7,7 +7,7 @@ import pdfplumber
 from Bio import Entrez
 from typing import Any, Callable
 
-from retrieval import (
+from src.retrieval import (
     BaseRetriever,
     NCBIRetriever,
     TextRetriever,

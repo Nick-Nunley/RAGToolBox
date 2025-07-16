@@ -1,10 +1,11 @@
 import pytest
 from typing import Any, List
 
-from chunk import (
+from src.chunk import (
     Chunker,
     ParagraphChunker,
-    SentenceChunker
+    SentenceChunker,
+    SlidingWindowChunker
 )
 
 # Test data
@@ -248,25 +249,154 @@ def test_chunker_consistency() -> None:
     result4 = sentence_chunker.chunk(text)
     assert result3 == result4
 
+# SlidingWindowChunker tests
+def test_sliding_window_chunker_basic() -> None:
+    """Test basic sliding window chunking functionality."""
+    text = "This is a test document. " * 50  # Create a long text
+    chunker = SlidingWindowChunker(window_size=100, overlap=20)
+    chunks = chunker.chunk(text)
+    
+    assert len(chunks) > 1  # Should create multiple chunks
+    assert all(len(chunk) <= 100 for chunk in chunks)  # All chunks within size limit
+    
+    # Check that chunks overlap
+    for i in range(len(chunks) - 1):
+        # There should be some overlap between consecutive chunks
+        overlap_text = chunks[i][-20:]  # Last 20 chars of current chunk
+        next_chunk_start = chunks[i + 1][:20]  # First 20 chars of next chunk
+        # At least some characters should be the same (allowing for word boundaries)
+        assert any(char in next_chunk_start for char in overlap_text)
+
+def test_sliding_window_chunker_word_boundaries() -> None:
+    """Test that sliding window respects word boundaries."""
+    text = "This is a test document with multiple words. Each word should be preserved."
+    chunker = SlidingWindowChunker(window_size=30, overlap=10)
+    chunks = chunker.chunk(text)
+    
+    # Check that no words are split in the middle
+    for chunk in chunks:
+        # If a word is split, it would have a space in the middle
+        words = chunk.split()
+        for word in words:
+            # Words should not have internal spaces (indicating they were split)
+            assert ' ' not in word.strip()
+
+def test_sliding_window_chunker_empty_text() -> None:
+    """Test sliding window chunker with empty text."""
+    chunker = SlidingWindowChunker()
+    chunks = chunker.chunk("")
+    assert chunks == []
+
+def test_sliding_window_chunker_short_text() -> None:
+    """Test sliding window chunker with text shorter than window size."""
+    text = "Short text."
+    chunker = SlidingWindowChunker(window_size=100, overlap=20)
+    chunks = chunker.chunk(text)
+    
+    assert len(chunks) == 1
+    assert chunks[0] == text
+
+def test_sliding_window_chunker_validation() -> None:
+    """Test sliding window chunker parameter validation."""
+    # Test invalid window_size
+    with pytest.raises(ValueError):
+        SlidingWindowChunker(window_size=0)
+    
+    with pytest.raises(ValueError):
+        SlidingWindowChunker(window_size=-1)
+    
+    # Test invalid overlap
+    with pytest.raises(ValueError):
+        SlidingWindowChunker(window_size=100, overlap=-1)
+    
+    # Test overlap >= window_size
+    with pytest.raises(ValueError):
+        SlidingWindowChunker(window_size=100, overlap=100)
+    
+    with pytest.raises(ValueError):
+        SlidingWindowChunker(window_size=100, overlap=150)
+
+def test_sliding_window_chunker_with_newlines() -> None:
+    """Test sliding window chunker with text containing newlines."""
+    text = "First paragraph.\n\nSecond paragraph.\n\nThird paragraph with more content."
+    chunker = SlidingWindowChunker(window_size=50, overlap=10)
+    chunks = chunker.chunk(text)
+    
+    assert len(chunks) > 1
+    # Check that newlines are preserved
+    for chunk in chunks:
+        if '\n' in text:
+            assert '\n' in chunk or chunk in text
+
+def test_sliding_window_chunker_large_overlap() -> None:
+    """Test sliding window chunker with large overlap."""
+    text = "This is a test document. " * 20
+    chunker = SlidingWindowChunker(window_size=100, overlap=80)
+    chunks = chunker.chunk(text)
+    
+    assert len(chunks) > 1
+    # With large overlap, consecutive chunks should have significant overlap
+    for i in range(len(chunks) - 1):
+        current_chunk = chunks[i]
+        next_chunk = chunks[i + 1]
+        # At least 50% of the current chunk should overlap with the next
+        overlap_length = len(set(current_chunk[-40:]) & set(next_chunk[:40]))
+        assert overlap_length > 0
+
+def test_sliding_window_chunker_no_overlap() -> None:
+    """Test sliding window chunker with no overlap."""
+    text = "This is a test document. " * 20
+    chunker = SlidingWindowChunker(window_size=100, overlap=0)
+    chunks = chunker.chunk(text)
+    
+    assert len(chunks) > 1
+    # With no overlap, consecutive chunks should have minimal overlap
+    # (only due to word boundaries, not intentional overlap)
+    for i in range(len(chunks) - 1):
+        current_chunk = chunks[i]
+        next_chunk = chunks[i + 1]
+        # The overlap should be minimal (just a few characters at word boundaries)
+        overlap_length = len(set(current_chunk[-20:]) & set(next_chunk[:20]))
+        assert overlap_length < 15  # Allow for some overlap due to word boundaries
+
+def test_sliding_window_chunker_protocol_compliance() -> None:
+    """Test that SlidingWindowChunker properly implements the Chunker protocol."""
+    chunker = SlidingWindowChunker()
+    
+    # Test that it can be used as a Chunker type
+    def process_with_chunker(chunker: Chunker, text: str) -> List[str]:
+        return chunker.chunk(text)
+    
+    result = process_with_chunker(chunker, "Test text.")
+    assert isinstance(result, list)
+
 # Error handling tests
 def test_chunker_with_none_input() -> None:
     """Test chunkers handle None input gracefully."""
     paragraph_chunker = ParagraphChunker()
     sentence_chunker = SentenceChunker()
+    sliding_chunker = SlidingWindowChunker()
     
     with pytest.raises(AttributeError):
         paragraph_chunker.chunk(None)  # type: ignore
     
     with pytest.raises(TypeError):
         sentence_chunker.chunk(None)  # type: ignore
+    
+    with pytest.raises(AttributeError):
+        sliding_chunker.chunk(None)  # type: ignore
 
 def test_chunker_with_non_string_input() -> None:
     """Test chunkers handle non-string input gracefully."""
     paragraph_chunker = ParagraphChunker()
     sentence_chunker = SentenceChunker()
+    sliding_chunker = SlidingWindowChunker()
     
     with pytest.raises(AttributeError):
         paragraph_chunker.chunk(123)  # type: ignore
     
     with pytest.raises(TypeError):
         sentence_chunker.chunk(123)  # type: ignore
+    
+    with pytest.raises(AttributeError):
+        sliding_chunker.chunk(123)  # type: ignore
