@@ -114,7 +114,7 @@ class NCBILoader(BaseLoader):
             raise RuntimeError(f"Entrez fetch failed for {pmc_id}: {tried}")
 
         # Try to extract PDF link if PMC
-        pdf_url = self._extract_pdf_url_from_xml(self.raw_content) if db == 'pmc' else None
+        pdf_url = self._extract_pdf_url_from_xml(self.raw_content) if db == 'pmc' and self.raw_content else None
         if pdf_url:
             print(f"PDF link found for {pmc_id}: {pdf_url}\nAttempting to download and extract text from PDF.")
             try:
@@ -132,6 +132,8 @@ class NCBILoader(BaseLoader):
             self._used_pdf = False
 
         # If no PDF, check for 'not allowed' comment and warn (handle both bytes and str)
+        if self.raw_content is None:
+            return
         raw_str: str = self.raw_content.decode('utf-8', errors='ignore') if isinstance(self.raw_content, bytes) else self.raw_content
         if "does not allow downloading of the full text" in raw_str:
             print(f"Warning: Full text not available for {pmc_id}. Only abstract and metadata will be extracted.")
@@ -223,6 +225,8 @@ class NCBILoader(BaseLoader):
 
     def _parse_xml_content(self) -> Optional[Dict[str, Any]]:
         """Dynamically parse PMC or PubMed XML content."""
+        if self.raw_content is None:
+            return None
         try:
             root = ET.fromstring(self.raw_content)
             tag = root.tag.lower()
@@ -361,12 +365,16 @@ class HTMLLoader(BaseLoader):
             ):
             el = soup.select_one(sel)
             if el:
-                return el
+                return el  # type: ignore
         # HTML5 semantic
         for tag in ("article", "main"):
             el = soup.find(tag)
-            if el and el.find("p"):
-                return el
+            if el and hasattr(el, 'find'):
+                try:
+                    if el.find("p"):  # type: ignore
+                        return el  # type: ignore
+                except AttributeError:
+                    continue
         # Fallback on the whole soup
         return soup
 
@@ -375,6 +383,8 @@ class HTMLLoader(BaseLoader):
 
     def convert(self) -> None:
         """Extract only the main article text + references, generically across sites."""
+        if self.raw_content is None:
+            return
         html = self.raw_content
         soup = BeautifulSoup(html, "html.parser")
         # 1) Find the best container
@@ -382,7 +392,8 @@ class HTMLLoader(BaseLoader):
         # 2) Readability fallback
         text_blob = main.get_text("\n", strip=True)
         if len(text_blob) < 200 and self._USE_READABILITY:
-            doc = Document(html.decode("utf-8", errors="ignore"))
+            html_str = html.decode("utf-8", errors="ignore") if isinstance(html, bytes) else html
+            doc = Document(html_str)
             soup = BeautifulSoup(doc.summary(), "html.parser")
             main = soup
         # 3) Pull text and strip UI cruft
@@ -400,12 +411,12 @@ class HTMLLoader(BaseLoader):
         soup = BeautifulSoup(html, "html.parser")
         # 1) try citation_title
         meta = soup.find("meta", {"name": "citation_title"})
-        if meta and meta.get("content"):
-            return meta["content"]
+        if meta and hasattr(meta, 'get') and meta.get("content"):  # type: ignore
+            return meta["content"]  # type: ignore
         # 2) try OpenGraph
         og = soup.find("meta", {"property": "og:title"})
-        if og and og.get("content"):
-            return og["content"]
+        if og and hasattr(og, 'get') and og.get("content"):  # type: ignore
+            return og["content"]  # type: ignore
         # 3) fallback to <title>
         if soup.title and soup.title.string:
             return soup.title.string
@@ -414,7 +425,10 @@ class HTMLLoader(BaseLoader):
     def save(self) -> None:
         os.makedirs(self.output_dir, exist_ok=True)
         # Try extracting a real title:
-        title = self._extract_title(self.raw_content)  
+        if self.raw_content is None:
+            title = ""
+        else:
+            title = self._extract_title(self.raw_content)  # type: ignore  
         if title:
             name = self._slugify(title)
         else:
@@ -433,7 +447,9 @@ class PDFLoader(BaseLoader):
     def convert(self) -> None:
         """Extract text from each page of a PDF."""
         text_chunks = []
-        with pdfplumber.open(io.BytesIO(self.raw_content)) as pdf:
+        if self.raw_content is None:
+            return
+        with pdfplumber.open(io.BytesIO(self.raw_content)) as pdf:  # type: ignore
             for page in pdf.pages:
                 txt = page.extract_text()
                 if txt:
@@ -444,7 +460,10 @@ class TextLoader(BaseLoader):
 
     def convert(self) -> None:
         """Decode raw bytes as UTF-8 text."""
-        self.text = self.raw_content.decode('utf-8', errors = 'ignore')
+        if self.raw_content is None:
+            self.text = ""
+        else:
+            self.text = self.raw_content.decode('utf-8', errors = 'ignore')  # type: ignore
 
 class UnknownLoader(BaseLoader):
 
@@ -476,7 +495,7 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    HTMLLoader._USE_READABILITY = args.use_readability
+    HTMLLoader._USE_READABILITY = args.use_readability  # type: ignore
     # Set Entrez email if provided
     if args.email:
         Entrez.email = args.email
