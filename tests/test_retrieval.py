@@ -86,7 +86,8 @@ def test_ncbi_retriever_fetch_success(monkeypatch: Any) -> None:
     url = 'https://pmc.ncbi.nlm.nih.gov/articles/PMC999999/'
     retr = NCBIRetriever(url, 'out')
     retr.fetch()
-    assert b'Abstract text' in retr.raw_content
+    assert retr.raw_content is not None
+    assert b'Abstract text' in retr.raw_content # type: ignore[union-attr]
 
     retr.convert()
     assert 'Abstract text' in retr.text
