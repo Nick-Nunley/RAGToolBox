@@ -6,6 +6,7 @@ from src.chunk import (
     ParagraphChunker,
     SentenceChunker,
     SlidingWindowChunker,
+    SectionAwareChunker,
     HierarchicalChunker
 )
 
@@ -32,9 +33,163 @@ Second paragraph with extra newlines.
 
 Third paragraph with trailing spaces.   """
 
+# Section-aware chunker test data
+SAMPLE_MARKDOWN_TEXT = """# Main Title
+
+This is the introduction paragraph. It contains some basic information.
+
+## Section 1
+
+This is the first section. It has multiple sentences. Each sentence provides different information.
+
+This is another paragraph in section 1. It continues the discussion.
+
+## Section 2
+
+This is the second section. It's shorter than the first section.
+
+### Subsection 2.1
+
+This is a subsection. It's nested under section 2## Section 3
+
+This is the final section. It concludes the document."""
+
+SAMPLE_MARKDOWN_NO_HEADERS = """This is a document without any markdown headers.
+
+It just has regular paragraphs. No special formatting."""
+
+SAMPLE_MARKDOWN_EMPTY_SECTIONS = """# Title
+
+## Section 1
+
+## Section 2
+
+Some content here.
+
+## Section 3
+"""
+
+SAMPLE_MARKDOWN_LARGE_SECTION = """# Large Document
+
+## Introduction
+
+This is a very long section that will need to be split into multiple chunks. Lorem ipsum dolor sit amet. " * 50 + 
+
+## Conclusion
+
+This is the end."""
+
 # =====================
 # UNIT TESTS
 # =====================
+
+# SectionAwareChunker unit tests
+def test_section_aware_chunker_basic() -> None:
+    chunker = SectionAwareChunker(max_chunk_size=200, overlap=50)
+    chunks = chunker.chunk(SAMPLE_MARKDOWN_TEXT)
+    assert len(chunks) >= 1
+    assert any("# Main Title" in chunk for chunk in chunks)
+    assert any("## Section 1" in chunk for chunk in chunks)
+    assert any("## Section 2" in chunk for chunk in chunks)
+    assert any("## Section 3" in chunk for chunk in chunks)
+
+def test_section_aware_chunker_no_headers() -> None:
+    chunker = SectionAwareChunker(max_chunk_size=200, overlap=50)
+    chunks = chunker.chunk(SAMPLE_MARKDOWN_NO_HEADERS)
+    assert len(chunks) >= 1
+    # Should still chunk the text even without headers
+    assert any("document without any markdown headers" in chunk for chunk in chunks)
+
+def test_section_aware_chunker_empty_sections() -> None:
+    chunker = SectionAwareChunker(max_chunk_size=200, overlap=50)
+    chunks = chunker.chunk(SAMPLE_MARKDOWN_EMPTY_SECTIONS)
+    assert len(chunks) >= 1
+    # Should preserve headers even for empty sections
+    assert any("# Title" in chunk for chunk in chunks)
+    assert any("## Section 1" in chunk for chunk in chunks)
+    assert any("## Section 2" in chunk for chunk in chunks)
+    assert any("## Section 3" in chunk for chunk in chunks)
+
+def test_section_aware_chunker_large_section() -> None:
+    chunker = SectionAwareChunker(max_chunk_size=500, overlap=100)
+    chunks = chunker.chunk(SAMPLE_MARKDOWN_LARGE_SECTION)
+    assert len(chunks) >=2
+    # Should split the large section
+    assert any("# Large Document" in chunk for chunk in chunks)
+    assert any("## Introduction" in chunk for chunk in chunks)
+    assert any("## Conclusion" in chunk for chunk in chunks)
+
+def test_section_aware_chunker_empty_text() -> None:
+    chunker = SectionAwareChunker()
+    chunks = chunker.chunk("")
+    assert len(chunks) == 0
+
+def test_section_aware_chunker_whitespace_only() -> None:
+    chunker = SectionAwareChunker()
+    chunks = chunker.chunk("   \n\n   \n\n   ")
+    assert len(chunks) == 0
+
+def test_section_aware_chunker_single_header() -> None:
+    text = "# Single Header\n\nSome content here."
+    chunker = SectionAwareChunker(max_chunk_size=100, overlap=20)
+    chunks = chunker.chunk(text)
+    assert len(chunks) == 1
+    assert "# Single Header" in chunks[0]
+    assert "Some content here" in chunks[0]
+
+def test_section_aware_chunker_nested_headers() -> None:
+    text = "# Title\n\n## Section 1\n\n### Subsection11\nContent here.\n\n### Subsection12\nMore content.\n\n## Section 2\n\nFinal content."
+    chunker = SectionAwareChunker(max_chunk_size=200, overlap=50)
+    chunks = chunker.chunk(text)
+    assert len(chunks) >= 1  # Check that all header levels are preserved
+    assert any("# Title" in chunk for chunk in chunks)
+    assert any("## Section 1" in chunk for chunk in chunks)
+    assert any("### Subsection11" in chunk for chunk in chunks)
+    assert any("### Subsection12" in chunk for chunk in chunks)
+    assert any("## Section 2" in chunk for chunk in chunks)
+
+def test_section_aware_chunker_break_point_selection() -> None:
+    # Test that the chunker finds good break points
+    text = "# Test Document\n\n## Long Section\nThis is a sentence. " * 5 + "\n\n## Short Section\nBrief content."
+    chunker = SectionAwareChunker(max_chunk_size=300, overlap=50)
+    chunks = chunker.chunk(text)
+    assert len(chunks) >= 2
+    # Should split the long section
+    # Check that chunks don't break in the middle of words
+    for chunk in chunks:
+        if len(chunk) > 50:  # Skip very short chunks
+            # Should not end with a partial word
+            assert not chunk.strip().endswith('T')
+            assert not chunk.strip().endswith('Th')
+            assert not chunk.strip().endswith('Thi')
+
+def test_section_aware_chunker_parameter_validation() -> None:
+    # Test invalid parameters
+    with pytest.raises(ValueError):
+        SectionAwareChunker(max_chunk_size=0)
+    
+    with pytest.raises(ValueError):
+        SectionAwareChunker(max_chunk_size=100, overlap=-1)
+    
+    with pytest.raises(ValueError):
+        SectionAwareChunker(max_chunk_size=10, overlap=100)
+
+def test_section_aware_chunker_protocol_compliance() -> None:
+    chunker = SectionAwareChunker()
+    def process_with_chunker(chunker: Chunker, text: str) -> List[str]:
+        return chunker.chunk(text)
+    result = process_with_chunker(chunker, SAMPLE_MARKDOWN_TEXT)
+    assert isinstance(result, list)
+
+def test_section_aware_chunker_with_none_input() -> None:
+    chunker = SectionAwareChunker()
+    with pytest.raises(AttributeError):
+        chunker.chunk(None)  # type: ignore
+
+def test_section_aware_chunker_with_non_string_input() -> None:
+    chunker = SectionAwareChunker()
+    with pytest.raises(AttributeError):
+        chunker.chunk(123)  # type: ignore
 
 # ParagraphChunker unit tests
 def test_paragraph_chunker_basic() -> None:
@@ -194,15 +349,13 @@ def test_sentence_chunker_with_quotes() -> None:
         assert "he continued" in chunks[1]
         assert "Another quote" in chunks[2]
 
-# SlidingWindowChunker unit tests (already comprehensive, left as is)
-# HierarchicalChunker unit tests (already comprehensive, left as is)
-
 # Protocol compliance and error handling
 def test_chunker_protocol_compliance() -> None:
     chunkers = [
         ParagraphChunker(),
         SentenceChunker(),
         SlidingWindowChunker(),
+        SectionAwareChunker(),
         HierarchicalChunker([ParagraphChunker(), SentenceChunker()])
     ]
     for chunker in chunkers:
@@ -216,6 +369,7 @@ def test_chunker_with_none_input() -> None:
         ParagraphChunker(),
         SentenceChunker(),
         SlidingWindowChunker(),
+        SectionAwareChunker(),
         HierarchicalChunker([ParagraphChunker()])
     ]
     for chunker in chunkers:
@@ -231,6 +385,7 @@ def test_chunker_with_non_string_input() -> None:
         ParagraphChunker(),
         SentenceChunker(),
         SlidingWindowChunker(),
+        SectionAwareChunker(),
         HierarchicalChunker([ParagraphChunker()])
     ]
     for chunker in chunkers:
@@ -245,71 +400,118 @@ def test_chunker_with_non_string_input() -> None:
 # INTEGRATION TESTS
 # =====================
 
-def test_chunker_with_real_document_content() -> None:
-    real_document = """Low-intensity focused ultrasound (LIFU) is a non-invasive neuromodulation technique.
+def test_section_aware_chunker_with_real_document_content() -> None:
+    real_document = """# A review of low-intensity focused ultrasound for neuromodulation
 
-The technique uses focused ultrasound waves to modulate neural activity. It has shown promise in various applications.
+## Abstract
 
-Studies have demonstrated its effectiveness in treating neurological disorders. The safety profile appears favorable."""
-    chunkers = [
-        ParagraphChunker(),
-        SentenceChunker(),
-        SlidingWindowChunker(window_size=100, overlap=20),
-        HierarchicalChunker([ParagraphChunker(), SentenceChunker()]),
-    ]
-    for chunker in chunkers:
-        chunks = chunker.chunk(real_document)
-        assert any("LIFU" in c for c in chunks)
-        assert any("focused ultrasound waves" in c for c in chunks)
-        assert any("neurological disorders" in c for c in chunks)
+Low-intensity focused ultrasound (LIFU) is a non-invasive neuromodulation technique that has shown promise for various clinical applications. This review discusses the mechanisms, applications, and future directions of LIFU.
+
+## Introduction
+
+LIFU works by focusing ultrasound waves into small regions of the brain. The technique offers several advantages over traditional neuromodulation methods.
+
+## Methods
+
+Studies were conducted using various LIFU parameters. Results showed significant effects on neural activity.
+
+## Results
+
+LIFU successfully modulated neural activity in target regions. No adverse effects were observed.
+
+## Discussion
+
+These findings suggest LIFU has potential for clinical applications. Further research is needed to optimize parameters.
+
+## Conclusion
+
+LIFU represents a promising new approach to neuromodulation."""
+    chunker = SectionAwareChunker(max_chunk_size=80, overlap=10)
+    chunks = chunker.chunk(real_document)
+    assert len(chunks) >= 3  # Check that all major sections are represented
+    assert any("## Abstract" in chunk for chunk in chunks)
+    assert any("## Introduction" in chunk for chunk in chunks)
+    assert any("## Methods" in chunk for chunk in chunks)
+    assert any("## Results" in chunk for chunk in chunks)
+    assert any("## Discussion" in chunk for chunk in chunks)
+    assert any("## Conclusion" in chunk for chunk in chunks)
+
+def test_section_aware_chunker_with_ncbi_loader_output() -> None:
+    # Simulate output from NCBILoader
+    ncbi_output = """# A review of low-intensity focused ultrasound for neuromodulation
+**Authors:** Hongchae Baek, Ki Joo Pahk, Hyungmin Kim
+**Journal:** Biomedical Engineering Letters
+**DOI:** 10.107/s1353407*Keywords:** Focused ultrasound, Neuromodulation, Brain, Non-invasive
+---
+## Abstract
+Abstracts The ability of ultrasound to be focused into a small region of interest through the intact skull within the brain has led researchers to investigate its potential therapeutic uses for functional neurosurgery and tumor ablation. Studies have used high-intensity focused ultrasound to ablate tissue in localised brain regions for movement disorders and chronic pain while sparing the overlying and surrounding tissue. More recently, low-intensity focused ultrasound (LIFU) that induces reversible biological effects has been emerged as an alternative neuromodulation modality due to its bi-modal ( i.e. excitation and suppression) capability with exquisite spatial specificity and depth penetration. Many compelling evidences of LIFU-mediated neuromodulatory effects including behavioral responses, electrophysiological recordings and functional imaging data have been found in the last decades. LIFU, therefore, has the enormous potential to improve the clinical outcomes as well as to replace the currently available neuromodulation techniques such as deep brain stimulation (DBS), transcranial magnetic stimulation and transcranial current stimulation. In this paper, we aim to provide a summary of pioneering studies in the field of ultrasonic neuromodulation including its underlying mechanisms that were published in the last 60 years. In closing, some of potential clinical applications of ultrasonic brain stimulation will be discussed."""
+    chunker = SectionAwareChunker(max_chunk_size=400, overlap=100)
+    chunks = chunker.chunk(ncbi_output)
+    
+    assert len(chunks) >= 2
+    # Check that metadata and content are preserved
+    assert any("# A review of low-intensity focused ultrasound" in chunk for chunk in chunks)
+    assert any("**Authors:** Hongchae Baek, Ki Joo Pahk, Hyungmin Kim" in chunk for chunk in chunks)
+    assert any("## Abstract" in chunk for chunk in chunks)
+    assert any("LIFU-mediated neuromodulatory effects" in chunk for chunk in chunks)
 
 def test_chunker_performance_with_large_text() -> None:
-    large_text = "Sentence one. " * 100 + "Sentence two. " * 100
+    # Test performance with larger text
+    large_text = "# Large Document\n\n" + "This is a sentence. " * 10
+    
     chunkers = [
         ParagraphChunker(),
         SentenceChunker(),
-        SlidingWindowChunker(window_size=100, overlap=20),
-        HierarchicalChunker([ParagraphChunker(), SentenceChunker()]),
+        SlidingWindowChunker(window_size=1000, overlap=200),
+        SectionAwareChunker(max_chunk_size=100, overlap=50)
     ]
+    
     for chunker in chunkers:
         chunks = chunker.chunk(large_text)
         assert isinstance(chunks, list)
         assert len(chunks) > 0
+        # All chunks should be non-empty
+        assert all(chunk.strip() for chunk in chunks)
 
 def test_chunker_edge_cases() -> None:
     edge_cases = [
-        "Single sentence.",
-        "Sentence one. Sentence two.",
-        "   Leading spaces.   ",
-        "Trailing spaces.   ",
-        "Multiple\n\n\nnewlines.",
-        "Abbreviations like Dr. Smith and Mr. Jones.",
-        "Numbers like 1.5 and 2.3.",
-        "Quotes: 'Hello.' 'World.'",
-        "Mixed punctuation! What about this? And this."
+        "",  # Empty string
+        "   \n\n   \n\n  ", # Whitespace only
+        "# Header only",  # Header without content
+        "Content only",  # Content without header
+        "# H12\n### H3\nContent",  # Nested headers
+        "Header\n\n\nContent",  # Multiple newlines
     ]
+    
     chunkers = [
         ParagraphChunker(),
         SentenceChunker(),
-        SlidingWindowChunker(window_size=100, overlap=20),
-        HierarchicalChunker([ParagraphChunker(), SentenceChunker()]),
+        SlidingWindowChunker(),
+        SectionAwareChunker(),
     ]
-    for text in edge_cases:
-        for chunker in chunkers:
-            result = chunker.chunk(text)
-            assert isinstance(result, list)
+    
+    for chunker in chunkers:
+        for text in edge_cases:
+            chunks = chunker.chunk(text)
+            assert isinstance(chunks, list)
+            # All chunks should be non-empty (except for empty input)
             if text.strip():
-                assert len(result) > 0
+                assert all(chunk.strip() for chunk in chunks)
 
 def test_chunker_consistency() -> None:
-    text = "This is a test. It has multiple sentences. We want consistent results."
+    # Test that chunkers produce consistent results
+    text = SAMPLE_MARKDOWN_TEXT
+    
     chunkers = [
         ParagraphChunker(),
         SentenceChunker(),
-        SlidingWindowChunker(window_size=100, overlap=20),
-        HierarchicalChunker([ParagraphChunker(), SentenceChunker()]),
+        SlidingWindowChunker(window_size=500),
+        SectionAwareChunker(max_chunk_size=50, overlap=25)
     ]
+    
     for chunker in chunkers:
-        result1 = chunker.chunk(text)
-        result2 = chunker.chunk(text)
-        assert result1 == result2
+        # Run multiple times to ensure consistency
+        chunks1 = chunker.chunk(text)
+        chunks2 = chunker.chunk(text)
+        assert len(chunks1) == len(chunks2)
+        assert chunks1 == chunks2

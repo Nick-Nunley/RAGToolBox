@@ -1,6 +1,7 @@
+import re
 import nltk
 from nltk.tokenize import sent_tokenize
-from typing import List, Protocol
+from typing import List, Protocol, Dict, Any, Tuple
 
 class Chunker(Protocol):
 
@@ -93,6 +94,140 @@ class SlidingWindowChunker(Chunker):
                 start = end
         
         return chunks
+
+class SectionAwareChunker(Chunker):
+    """
+    Chunks text while preserving section structure and metadata.
+    Useful for RAG systems that need to maintain document structure.
+    """
+    
+    def __init__(self, max_chunk_size: int = 1000, overlap: int = 200):
+        """
+        Initialize the section-aware chunker.
+        
+        Args:
+            max_chunk_size: Maximum characters per chunk
+            overlap: Character overlap between chunks
+        """
+        if max_chunk_size <= 0:
+            raise ValueError("max_chunk_size must be positive")
+        if overlap < 0:
+            raise ValueError("overlap must be non-negative")
+        if overlap >= max_chunk_size:
+            raise ValueError("overlap must be less than max_chunk_size")
+        
+        self.max_chunk_size = max_chunk_size
+        self.overlap = overlap
+    
+    def chunk(self, text: str) -> List[str]:
+        """
+        Split text into chunks while preserving section structure.
+        
+        Args:
+            text: Input text with markdown headers
+            
+        Returns:
+            List of text chunks with section context
+        """
+        if not text.strip():
+            return []
+        
+        # Split by markdown headers
+        sections = re.split(r'(^#{1,6}\s+.+$)', text, flags=re.MULTILINE)
+        
+        chunks = []
+        current_header = ""
+        i = 0
+        while i < len(sections):
+            section = sections[i]
+            if not section.strip():
+                i += 1
+                continue
+                
+            # Check if this is a header
+            if re.match(r'^#{1,6}\s+', section.strip()):
+                current_header = section.strip()
+                # Check if next section is content or another header/end
+                if i+1 >= len(sections) or re.match(r'^#{1,6}\s+', sections[i+1].strip()) or not sections[i+1].strip():
+                    # No content for this header, emit header-only chunk
+                    chunks.append(current_header)
+                i += 1
+                continue
+            
+            # This is content, combine with header
+            full_section = f"{current_header}\n{section}" if current_header else section
+            
+            # If section is too large, split it further
+            if len(full_section) > self.max_chunk_size:
+                sub_chunks = self._split_large_section(full_section, current_header)
+                chunks.extend(sub_chunks)
+            else:
+                chunks.append(full_section.strip())
+            i += 1
+        
+        return [chunk for chunk in chunks if chunk.strip()]
+
+    def _split_large_section(self, section_text: str, header: str) -> List[str]:
+        """
+        Splits a large section into smaller chunks while preserving context.
+        """
+        chunks = []
+        remaining = section_text
+        original_length = len(section_text)
+        
+        while len(remaining) > self.max_chunk_size:
+            # Find a good break point
+            break_point = self._find_break_point(remaining, self.max_chunk_size)
+            
+            # Extract chunk and add header context
+            chunk = remaining[:break_point].strip()
+            if header and not chunk.startswith(header):
+                chunk = f"{header}\n{chunk}"
+            
+            chunks.append(chunk)
+            
+            # Move to next chunk with overlap
+            overlap_start = max(0, break_point - self.overlap)
+            remaining = remaining[overlap_start:]
+            
+            # Safety check: if we're not making progress, force advancement
+            if len(remaining) >= original_length or overlap_start == 0:
+                # Force advancement by at least one character
+                remaining = remaining[1:] if len(remaining) > 1 else ""
+            
+            # If we're not making progress, force advancement
+            if len(remaining) >= original_length:
+                break
+        
+        # Add remaining text
+        if remaining.strip():
+            chunk = remaining.strip()
+            if header and not chunk.startswith(header):
+                chunk = f"{header}\n{chunk}"
+            chunks.append(chunk)
+        
+        return chunks
+
+    def _find_break_point(self, text: str, max_size: int) -> int:
+        """
+        Finds a good break point within the text.
+        """
+        # Look for paragraph breaks first
+        search_start = max(0, max_size - 200)
+        last_paragraph = text.rfind('\n\n', search_start, max_size)
+        
+        if last_paragraph > search_start:
+            return last_paragraph + 2        
+        # Look for sentence breaks
+        last_sentence = text.rfind('.', search_start, max_size)
+        if last_sentence > search_start:
+            return last_sentence + 2        
+        # Look for word breaks
+        last_space = text.rfind(' ', search_start, max_size)
+        if last_space > search_start:
+            return last_space + 1        
+        # If all else fails, just break at max_size
+        return max_size
 
 class HierarchicalChunker(Chunker):
     """
