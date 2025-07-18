@@ -119,6 +119,44 @@ def test_html_loader_convert() -> None:
     assert 'Hi' in hr.text
     assert 'Para' in hr.text
 
+def test_html_loader_navigablestring_markdown() -> None:
+    html = b"""
+    <html>
+      <head><title>Test</title></head>
+      <body>
+        <h1>Header</h1>
+        <p>This is a <b>test</b> paragraph with <i>inline</i> tags.</p>
+        <ul>
+          <li>Item 1</li>
+          <li>Item 2</li>
+          <li>Item 3</li>
+          <li>Item 4</li>
+          <li>Item 5</li>
+        </ul>
+        <h2>Subheader</h2>
+        <p>Another paragraph to increase length.</p>
+        <p>Yet another paragraph to ensure we exceed the fallback threshold.</p>
+      </body>
+    </html>
+    """
+    loader = HTMLLoader("http://example.com", ".")
+    loader.raw_content = html
+    loader.convert()
+    output = loader.text
+
+    # Should contain the markdown header
+    assert "# Header" in output or "# Test" in output
+    assert "## Subheader" in output
+
+    # Should contain the paragraph text, flattened
+    assert "This is a test paragraph with inline tags." in output
+    assert "Another paragraph to increase length." in output
+    assert "Yet another paragraph to ensure we exceed the fallback threshold." in output
+
+    # Should contain all list items as markdown
+    for i in range(1, 6):
+        assert f"- Item {i}" in output
+
 def test_pdf_loader_convert(monkeypatch: Any) -> None:
     # Mock pdfplumber.open to return DummyPDF with pages
     pages = [DummyPage('Page1'), DummyPage('Page2')]

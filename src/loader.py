@@ -11,6 +11,7 @@ import pdfplumber
 from Bio import Entrez
 import xml.etree.ElementTree as ET
 from typing import Optional, Dict, Any, List, Union
+from bs4.element import NavigableString
 
 
 class BaseLoader:
@@ -382,30 +383,83 @@ class HTMLLoader(BaseLoader):
         return "\n".join(line.strip() for line in text_block.splitlines() if line.strip())
 
     def convert(self) -> None:
-        """Extract only the main article text + references, generically across sites."""
+        """Extract main article text and structure it as markdown with metadata."""
         if self.raw_content is None:
+            self.text = ""
             return
+
         html = self.raw_content
-        soup = BeautifulSoup(html, "html.parser")
-        # 1) Find the best container
-        main = self._find_main_container(soup)
-        # 2) Readability fallback
-        text_blob = main.get_text("\n", strip=True)
-        if len(text_blob) < 200 and self._USE_READABILITY:
-            html_str = html.decode("utf-8", errors="ignore") if isinstance(html, bytes) else html
-            doc = Document(html_str)
-            soup = BeautifulSoup(doc.summary(), "html.parser")
-            main = soup
-        # 3) Pull text and strip UI cruft
-        raw = main.get_text("\n", strip=True)
-        raw = re.sub(r"\[\s*edit(?: on [^\]]*)?\s*\]", "", raw, flags=re.IGNORECASE)
-        # 4) Split and clean body + references
-        body, refs = raw.split("\nReferences", 1) if "\nReferences" in raw else (raw, "")
-        clean = self._clean_lines(body)
-        if refs:
-            clean += "\n\nReferences\n" + self._clean_lines(refs)
-        # 5) Markdown conversion (optional)
-        self.text = html2text.html2text(clean)
+        html_str = html.decode("utf-8", errors="ignore") if isinstance(html, bytes) else html
+
+        # Use readability-lxml to extract the main article and title
+        from readability import Document
+        doc = Document(html_str)
+        # Always call _extract_title with bytes
+        title = doc.short_title() or self._extract_title(html if isinstance(html, bytes) else html.encode("utf-8", errors="ignore"))
+        summary_html = doc.summary()
+
+        soup = BeautifulSoup(summary_html, "html.parser")
+
+        # Build markdown content
+        md_lines = []
+
+        # Metadata block
+        md_lines.append(f"# {title}\n")
+        md_lines.append(f"**Source:** {self.url}")
+        md_lines.append("---\n")
+
+        # Convert HTML structure to markdown
+        def html_to_markdown(element):
+            if isinstance(element, NavigableString):
+                return str(element)
+            if element.name == "h1":
+                return f"# {element.get_text(separator=' ', strip=True)}\n"
+            elif element.name == "h2":
+                return f"## {element.get_text(separator=' ', strip=True)}\n"
+            elif element.name == "h3":
+                return f"### {element.get_text(separator=' ', strip=True)}\n"
+            elif element.name == "h4":
+                return f"#### {element.get_text(separator=' ', strip=True)}\n"
+            elif element.name == "h5":
+                return f"##### {element.get_text(separator=' ', strip=True)}\n"
+            elif element.name == "h6":
+                return f"###### {element.get_text(separator=' ', strip=True)}\n"
+            elif element.name == "p":
+                return element.get_text(separator=' ', strip=True) + "\n"
+            elif element.name == "ul":
+                return "\n".join(f"- {li.get_text(separator=' ', strip=True)}" for li in element.find_all("li", recursive=False)) + "\n"
+            elif element.name == "ol":
+                return "\n".join(f"1. {li.get_text(separator=' ', strip=True)}" for li in element.find_all("li", recursive=False)) + "\n"
+            elif element.name == "blockquote":
+                return "> " + element.get_text(separator=' ', strip=True) + "\n"
+            else:
+                # Recursively process children
+                return "".join(html_to_markdown(child) for child in element.children)
+
+        # Process the main content
+        if soup.body:
+            children = soup.body.children
+        else:
+            children = soup.children
+        for child in children:
+            if hasattr(child, "name") or isinstance(child, NavigableString):
+                md = html_to_markdown(child)
+                if md.strip():
+                    md_lines.append(md)
+
+        # Fallback: if markdown is too short, use previous logic
+        content = "\n".join(md_lines).strip()
+        if len(content) < 200:
+            main = self._find_main_container(BeautifulSoup(html, "html.parser"))
+            raw = main.get_text("\n", strip=True)
+            raw = re.sub(r"\[\s*edit(?: on [^\]]*)?\s*\]", "", raw, flags=re.IGNORECASE)
+            body, refs = raw.split("\nReferences", 1) if "\nReferences" in raw else (raw, "")
+            clean = self._clean_lines(body)
+            if refs:
+                clean += "\n\nReferences\n" + self._clean_lines(refs)
+            content = html2text.html2text(clean)
+
+        self.text = content
 
     def _extract_title(self, html: bytes) -> str:
         soup = BeautifulSoup(html, "html.parser")
