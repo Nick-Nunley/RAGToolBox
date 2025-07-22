@@ -1,6 +1,6 @@
 import pytest
 import argparse
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 from src.index import Indexer
 from src.chunk import Chunker
 
@@ -71,7 +71,13 @@ def test_indexer_embed():
     indexer = Indexer(DummyChunker(), embedding_model='openai')
     chunks = ["chunk one", "chunk two"]
     fake_embeddings = [[0.1, 0.2], [0.3, 0.4]]
-    with patch('openai.Embedding.create') as mock_create:
-        mock_create.return_value = {'data': [{'embedding': fake_embeddings[0]}, {'embedding': fake_embeddings[1]}]}
+    with patch('openai.OpenAI') as mock_client_class:
+        mock_client = MagicMock()
+        mock_response = MagicMock()
+        # Simulate response.data as a list of objects with .embedding attribute
+        mock_response.data = [MagicMock(embedding=fake_embeddings[0]), MagicMock(embedding=fake_embeddings[1])]
+        mock_client.embeddings.create.return_value = mock_response
+        mock_client_class.return_value = mock_client
+
         result = indexer.embed(chunks)
         assert result == fake_embeddings
