@@ -17,17 +17,11 @@ class Indexer:
             raise ValueError(f"Unsupported embedding model: {embedding_model}. Embedding model must be one of: {supported_embedding_models}")
         self.embedding_model = embedding_model
 
-    def chunk(self, args: Tuple[str, str]) -> Tuple[str, dict, List[str]]:
-        """Chunk a document after extracting metadata. Returns (name, metadata, chunks)."""
-        name, text = args
-        parsed = self.pre_chunk(text)
-        metadata = parsed['metadata']
-        main_text = parsed['text']
-        return (name, metadata, self.chunker.chunk(main_text))
-
     def pre_chunk(self, text: str) -> dict:
         """
         Parse a markdown document with metadata at the top (separated by a line with '---').
+        Also extract the references section (after '## References') and store in metadata as 'references',
+        but do not remove it from the main text. If no references, do not add the key.
         Returns a dictionary: { 'metadata': {...}, 'text': ... }
         """
         # Split at the first '---' line
@@ -39,9 +33,31 @@ class Indexer:
                 if ':' in line:
                     key, value = line.split(':', 1)
                     metadata[key.strip()] = value.strip()
+            try:
+                refs_match = re.search(r'^## References\s*\n(.+)', main_text, flags=re.MULTILINE | re.DOTALL)
+                if refs_match:
+                    metadata['references'] = refs_match.group(1).strip()
+            except Exception:
+                pass
             return {'metadata': metadata, 'text': main_text.strip()}
         else:
-            return {'metadata': {}, 'text': text.strip()}
+            metadata = {}
+            main_text = text.strip()
+            try:
+                refs_match = re.search(r'^## References\s*\n(.+)', main_text, flags=re.MULTILINE | re.DOTALL)
+                if refs_match:
+                    metadata['references'] = refs_match.group(1).strip()
+            except Exception:
+                pass
+            return {'metadata': metadata, 'text': main_text}
+
+    def chunk(self, args: Tuple[str, str]) -> Tuple[str, dict, List[str]]:
+        """Chunk a document after extracting metadata. Returns (name, metadata, chunks)."""
+        name, text = args
+        parsed = self.pre_chunk(text)
+        metadata = parsed['metadata']
+        main_text = parsed['text']
+        return (name, metadata, self.chunker.chunk(main_text))
 
     def main(self, args: argparse.Namespace) -> None:
         """Main method for indexing content."""
