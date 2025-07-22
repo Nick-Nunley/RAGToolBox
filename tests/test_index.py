@@ -65,3 +65,13 @@ def test_indexer_chunk():
     assert isinstance(result[2], list)  # chunks
     assert result[2] == ["This is a test document."]
 
+
+# Test the embed method
+def test_indexer_embed():
+    indexer = Indexer(DummyChunker(), embedding_model='openai')
+    chunks = ["chunk one", "chunk two"]
+    fake_embeddings = [[0.1, 0.2], [0.3, 0.4]]
+    with patch('openai.Embedding.create') as mock_create:
+        mock_create.return_value = {'data': [{'embedding': fake_embeddings[0]}, {'embedding': fake_embeddings[1]}]}
+        result = indexer.embed(chunks)
+        assert result == fake_embeddings

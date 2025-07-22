@@ -2,9 +2,11 @@ import argparse
 import os
 import subprocess
 import re
+import time
+import openai
 from typing import Optional, List, Tuple
 from pathlib import Path
-from src.chunk import Chunker
+from src.chunk import Chunker, HierarchicalChunker, SectionAwareChunker, SlidingWindowChunker
 
 
 class Indexer:
@@ -16,6 +18,7 @@ class Indexer:
         if embedding_model not in supported_embedding_models:
             raise ValueError(f"Unsupported embedding model: {embedding_model}. Embedding model must be one of: {supported_embedding_models}")
         self.embedding_model = embedding_model
+        # OpenAI.api_key = os.getenv("OPENAI_API_KEY")
 
     def pre_chunk(self, text: str) -> dict:
         """
@@ -40,16 +43,16 @@ class Indexer:
             except Exception:
                 pass
             return {'metadata': metadata, 'text': main_text.strip()}
-        else:
-            metadata = {}
-            main_text = text.strip()
-            try:
-                refs_match = re.search(r'^## References\s*\n(.+)', main_text, flags=re.MULTILINE | re.DOTALL)
-                if refs_match:
-                    metadata['references'] = refs_match.group(1).strip()
-            except Exception:
-                pass
-            return {'metadata': metadata, 'text': main_text}
+
+        metadata = {}
+        main_text = text.strip()
+        try:
+            refs_match = re.search(r'^## References\s*\n(.+)', main_text, flags=re.MULTILINE | re.DOTALL)
+            if refs_match:
+                metadata['references'] = refs_match.group(1).strip()
+        except Exception:
+            pass
+        return {'metadata': metadata, 'text': main_text}
 
     def chunk(self, args: Tuple[str, str]) -> Tuple[str, dict, List[str]]:
         """Chunk a document after extracting metadata. Returns (name, metadata, chunks)."""
@@ -58,6 +61,29 @@ class Indexer:
         metadata = parsed['metadata']
         main_text = parsed['text']
         return (name, metadata, self.chunker.chunk(main_text))
+
+    def embed(self, chunks: List[str], max_retries: int = 5) -> List[list]:
+        """
+        Embed a list of text chunks using the configured embedding model (supports batching for OpenAI).
+        Retries with exponential backoff on rate limit errors.
+        Returns a list of embedding vectors.
+        """
+        if self.embedding_model == "openai":
+            client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+            model = "text-embedding-ada-002"
+            for attempt in range(max_retries):
+                try:
+                    response = client.embeddings.create(
+                        input=chunks,
+                        model=model
+                    )
+                    return [d.embedding for d in response.data]
+                except openai.RateLimitError as e:
+                    wait_time = 2 ** attempt
+                    print(f"Rate limit hit. Retrying in {wait_time} seconds...")
+                    time.sleep(wait_time)
+            raise RuntimeError("Failed to embed after multiple retries due to rate limits.")
+        raise ValueError(f"Embedding model '{self.embedding_model}' not supported.")
 
     def main(self, args: argparse.Namespace) -> None:
         """Main method for indexing content."""
@@ -103,10 +129,15 @@ class Indexer:
                 print(f"Chunked {name}: {len(chunks)} chunks")
 
         # 4. Embedding and indexing (single-threaded, rate-limited step)
-        # Placeholder: implement embedding/indexing logic here
-        for entry in chunked_results:
-            print(f"Indexing {entry['name']} chunk (embedding model: {self.embedding_model}) | Metadata: {entry['metadata']}")
-            # TODO: Call embedding API and add to index here
+        # Collect all chunk texts for embedding
+        chunk_texts = [entry['chunk'] for entry in chunked_results]
+        if chunk_texts:
+            embeddings = self.embed(chunk_texts)
+            for entry, embedding in zip(chunked_results, embeddings):
+                # Here you can store or index (embedding, entry['chunk'], entry['metadata'], entry['name'])
+                print(f"Indexed {entry['name']} chunk | Metadata: {entry['metadata']} | Embedding: {embedding[:5]}...")
+        else:
+            print("No chunks to embed.")
         print("Indexing complete.")
 
 
@@ -132,3 +163,10 @@ if __name__ == "__main__":
     load_parser.add_argument('--use-readability', action='store_true', help='Use readability fallback')
     args = parser.parse_args()
 
+    indexer = Indexer(
+        chunker = HierarchicalChunker([SectionAwareChunker(), SlidingWindowChunker()]),
+        embedding_model = args.embedding_model,
+        kb_dir = Path(args.kb_dir)
+        )
+    
+    indexer.main(args)
