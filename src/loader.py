@@ -5,7 +5,6 @@ import requests
 from urllib.parse import urlparse
 from bs4 import BeautifulSoup
 import html2text
-from readability import Document
 import re
 import pdfplumber
 from Bio import Entrez

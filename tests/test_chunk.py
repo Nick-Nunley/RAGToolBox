@@ -1,5 +1,5 @@
 import pytest
-from typing import Any, List
+from typing import List
 
 from src.chunk import (
     Chunker,

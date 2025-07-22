@@ -1,11 +1,8 @@
-import os
-import io
 import pytest
 import requests
-import html2text
 import pdfplumber
 from Bio import Entrez
-from typing import Any, Callable
+from typing import Any
 
 from src.loader import (
     BaseLoader,
