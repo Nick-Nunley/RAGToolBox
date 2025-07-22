@@ -60,6 +60,8 @@ def test_indexer_chunk():
     result = indexer.chunk(doc)
     assert isinstance(result, tuple)
     assert result[0] == "test.txt"
-    assert isinstance(result[1], list)
-    assert result[1] == ["This is a test document."]
+    assert isinstance(result[1], dict)  # metadata
+    assert result[1] == {}  # no metadata in this doc
+    assert isinstance(result[2], list)  # chunks
+    assert result[2] == ["This is a test document."]
 

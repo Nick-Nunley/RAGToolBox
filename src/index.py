@@ -1,6 +1,7 @@
 import argparse
 import os
 import subprocess
+import re
 from typing import Optional, List, Tuple
 from pathlib import Path
 from src.chunk import Chunker
@@ -16,10 +17,31 @@ class Indexer:
             raise ValueError(f"Unsupported embedding model: {embedding_model}. Embedding model must be one of: {supported_embedding_models}")
         self.embedding_model = embedding_model
 
-    def chunk(self, args: argparse.Namespace) -> Tuple[str, List[str]]:
-        """Method to chunk a documnet."""
+    def chunk(self, args: Tuple[str, str]) -> Tuple[str, dict, List[str]]:
+        """Chunk a document after extracting metadata. Returns (name, metadata, chunks)."""
         name, text = args
-        return (name, self.chunker.chunk(text))
+        parsed = self.pre_chunk(text)
+        metadata = parsed['metadata']
+        main_text = parsed['text']
+        return (name, metadata, self.chunker.chunk(main_text))
+
+    def pre_chunk(self, text: str) -> dict:
+        """
+        Parse a markdown document with metadata at the top (separated by a line with '---').
+        Returns a dictionary: { 'metadata': {...}, 'text': ... }
+        """
+        # Split at the first '---' line
+        parts = re.split(r'^---$', text, maxsplit=1, flags=re.MULTILINE)
+        if len(parts) == 2:
+            meta_block, main_text = parts
+            metadata = {}
+            for line in meta_block.strip().splitlines():
+                if ':' in line:
+                    key, value = line.split(':', 1)
+                    metadata[key.strip()] = value.strip()
+            return {'metadata': metadata, 'text': main_text.strip()}
+        else:
+            return {'metadata': {}, 'text': text.strip()}
 
     def main(self, args: argparse.Namespace) -> None:
         """Main method for indexing content."""
@@ -51,18 +73,23 @@ class Indexer:
         from concurrent.futures import ProcessPoolExecutor, as_completed
 
         print(f"Chunking {len(docs)} documents using {os.cpu_count()} processes...")
-        chunked_results = {}
+        chunked_results = []
         with ProcessPoolExecutor() as executor:
             future_to_name = {executor.submit(self.chunk, doc): doc[0] for doc in docs}
             for future in as_completed(future_to_name):
-                name, chunks = future.result()
-                chunked_results[name] = chunks
+                name, metadata, chunks = future.result()
+                for chunk in chunks:
+                    chunked_results.append({
+                        'name': name,
+                        'metadata': metadata,
+                        'chunk': chunk
+                    })
                 print(f"Chunked {name}: {len(chunks)} chunks")
 
         # 4. Embedding and indexing (single-threaded, rate-limited step)
         # Placeholder: implement embedding/indexing logic here
-        for name, chunks in chunked_results.items():
-            print(f"Indexing {name} with {len(chunks)} chunks (embedding model: {self.embedding_model})")
+        for entry in chunked_results:
+            print(f"Indexing {entry['name']} chunk (embedding model: {self.embedding_model}) | Metadata: {entry['metadata']}")
             # TODO: Call embedding API and add to index here
         print("Indexing complete.")
 
