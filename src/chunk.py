@@ -8,6 +8,24 @@ class Chunker(Protocol):
     def chunk(self, text: str) -> List[str]:
         ...
 
+    @staticmethod
+    def _find_next_word_boundary(text: str, idx: int) -> int:
+        text_len = len(text)
+        # Move forward to next whitespace
+        while idx < text_len and not text[idx].isspace():
+            idx += 1
+        # Move past whitespace to start of next word
+        while idx < text_len and text[idx].isspace():
+            idx += 1
+        return idx
+
+    @staticmethod
+    def _find_prev_word_boundary(text: str, idx: int, min_idx: int = 0) -> int:
+        # Move backward to previous whitespace
+        while idx > min_idx and not text[idx].isspace():
+            idx -= 1
+        return idx
+
 class ParagraphChunker(Chunker):
 
     def chunk(self, text: str) -> List[str]:
@@ -50,49 +68,43 @@ class SlidingWindowChunker(Chunker):
     
     def chunk(self, text: str) -> List[str]:
         """
-        Split text into overlapping chunks using sliding window.
-        
+        Split text into overlapping chunks using sliding window, ensuring chunks start and end at word boundaries.
         Args:
             text: Input text to chunk
-            
         Returns:
             List of overlapping text chunks
         """
         if not text.strip():
             return []
-        
+
         chunks = []
         start = 0
-        
-        while start < len(text):
-            # Calculate end position for current chunk
+        text_len = len(text)
+        prev_end = 0
+
+        while start < text_len:
             end = start + self.window_size
-            
-            # If this is not the last chunk, try to break at a word boundary
-            if end < len(text):
-                # Look for the last space or newline within the last 100 characters
-                # to avoid breaking words in the middle
-                search_start = max(start + self.window_size - 100, start)
-                last_space = text.rfind(' ', search_start, end)
-                last_newline = text.rfind('\n', search_start, end)
-                
-                # Use the later of space or newline, or just use end if neither found
-                break_point = max(last_space, last_newline)
-                if break_point > start:
-                    end = break_point + 1  # Include the space/newline
-            
+            if end > text_len:
+                end = text_len
+
+            # Adjust start and end using Chunker static helpers
+            min_start = prev_end if chunks else 0
+            adj_start = Chunker._find_next_word_boundary(text, max(start, min_start))
+            adj_end = Chunker._find_next_word_boundary(text, end)
+
             # Extract the chunk and clean it up
-            chunk = text[start:end].strip()
-            if chunk:  # Only add non-empty chunks
-                chunks.append(chunk)
-            
+            chunk = text[adj_start:adj_end].strip()
+            if chunk:
+                if not chunks or chunk != chunks[-1]:
+                    chunks.append(chunk)
+
+            prev_end = adj_end
+
             # Move to next chunk position with overlap
             start = end - self.overlap
-            
-            # If we're not making progress, force advancement
-            if start >= end:
-                start = end
-        
+            if start < prev_end:
+                start = prev_end
+
         return chunks
 
 class SectionAwareChunker(Chunker):
@@ -178,6 +190,8 @@ class SectionAwareChunker(Chunker):
         while len(remaining) > self.max_chunk_size:
             # Find a good break point
             break_point = self._find_break_point(remaining, self.max_chunk_size)
+            # Use superclass static method to avoid splitting words
+            break_point = Chunker._find_next_word_boundary(remaining, break_point)
             
             # Extract chunk and add header context
             chunk = remaining[:break_point].strip()
@@ -188,6 +202,8 @@ class SectionAwareChunker(Chunker):
             
             # Move to next chunk with overlap
             overlap_start = max(0, break_point - self.overlap)
+            # Adjust overlap_start to next word boundary
+            overlap_start = Chunker._find_next_word_boundary(remaining, overlap_start)
             remaining = remaining[overlap_start:]
             
             # Safety check: if we're not making progress, force advancement

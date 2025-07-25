@@ -191,6 +191,17 @@ def test_section_aware_chunker_with_non_string_input() -> None:
     with pytest.raises(AttributeError):
         chunker.chunk(123)  # type: ignore
 
+def test_section_aware_chunker_no_word_clipping() -> None:
+    # Create a long section with a word that would be split by naive chunking
+    header = "## Section"
+    text = header + "\n" + (
+        "This is a long section with a wordthatshouldnotbesplit " * 10
+    )
+    chunker = SectionAwareChunker(max_chunk_size=80, overlap=10)
+    chunks = chunker.chunk(text)
+    # Check that the full word is present in at least one chunk
+    assert any('wordthatshouldnotbesplit' in chunk for chunk in chunks)
+
 # ParagraphChunker unit tests
 def test_paragraph_chunker_basic() -> None:
     chunkers = [
@@ -395,6 +406,31 @@ def test_chunker_with_non_string_input() -> None:
         else:
             with pytest.raises(AttributeError):
                 chunker.chunk(123)  # type: ignore
+
+# SlidingWindowChunker unit tests
+def test_sliding_window_chunker_no_word_clipping() -> None:
+    # The word 'boundaryword' is placed so it would be clipped by a naive window
+    text = (
+        "This is a test sentence that is designed to end right at the window "
+        "boundaryword and then continues with more text after the boundaryword."
+    )
+    # Set window_size so that 'boundaryword' would be split if not careful
+    window_size = text.find('boundaryword') + 5  # Intentionally split in the middle
+    chunker = SlidingWindowChunker(window_size=window_size, overlap=10)
+    chunks = chunker.chunk(text)
+    # Assert that 'boundaryword' is never split across chunks
+    for chunk in chunks:
+        assert 'boundaryword' in chunk or 'boundaryword.' in chunk
+        # Check that chunk boundaries are at whitespace or start/end of text
+        if chunk:
+            start_idx = text.find(chunk)
+            end_idx = start_idx + len(chunk)
+            if start_idx > 0:
+                assert text[start_idx - 1] in (' ', '\n'), f"Chunk does not start at whitespace: {chunk!r}"
+            if end_idx < len(text):
+                assert text[end_idx] in (' ', '\n', '.'), f"Chunk does not end at whitespace: {chunk!r}"
+    # Also check that the full word is present in at least one chunk
+    assert any('boundaryword' in chunk for chunk in chunks)
 
 # =====================
 # INTEGRATION TESTS

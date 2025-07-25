@@ -8,7 +8,6 @@ import time
 from typing import Optional, List, Tuple
 from pathlib import Path
 from src.chunk import Chunker, HierarchicalChunker, SectionAwareChunker, SlidingWindowChunker
-import sys
 
 
 class Indexer:
