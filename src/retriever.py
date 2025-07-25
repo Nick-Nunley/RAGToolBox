@@ -11,6 +11,7 @@ import sqlite3
 
 
 class Retriever:
+    """Retriever class for retrieving relevant chunks from the knowledge base"""
 
     def __init__(self, embedding_model: str, db_path: Path = Path('assets/kb/embeddings.db')):
         supported_embedding_models = ['openai', 'fastembed']
