@@ -7,6 +7,7 @@ import numpy as np
 from pathlib import Path
 from unittest.mock import Mock, patch, MagicMock
 from typing import Any
+import json
 
 from src.retriever import Retriever
 
@@ -326,3 +327,81 @@ def test_retriever_unicode_query() -> None:
     unicode_query = "Query with unicode: αβγδε 中文 español français"
     embedding = retriever._embed_query(unicode_query)
     assert isinstance(embedding, np.ndarray)
+
+
+# =====================
+# INTEGRATION TESTS
+# =====================
+
+def test_retriever_full_integration() -> None:
+    """Integration test using actual Retriever.retrieve method without mocking internal methods"""
+    # Skip this test if fastembed is not available
+    try:
+        from fastembed import TextEmbedding
+    except ImportError:
+        pytest.skip("fastembed package not available")
+    
+    # Create a temporary database with test data
+    with tempfile.NamedTemporaryFile(suffix='.db', delete=False) as tmp_file:
+        db_path = tmp_file.name
+    
+    try:
+        # Create test database with real embeddings
+        conn = sqlite3.connect(db_path)
+        
+        # Create test data with biomedical content
+        test_data = pd.DataFrame({
+            'id': [1, 2, 3, 4, 5],
+            'chunk': [
+                'Low-intensity focused ultrasound therapy for non-invasive brain stimulation',
+                'Clinical trials investigating drug efficacy in cancer treatment',
+                'Medical device regulations and safety standards',
+                'Neuroscience research on brain imaging techniques',
+                'Biomedical engineering applications in healthcare'
+            ]
+        })
+        
+        # Generate real embeddings for the test chunks using FastEmbed
+        model = TextEmbedding()
+        
+        # Get embeddings for each chunk
+        embeddings = []
+        for chunk in test_data['chunk']:
+            embedding = list(model.embed(chunk))[0]
+            embeddings.append(json.dumps(embedding.tolist()))
+        
+        test_data['embedding'] = embeddings
+        test_data.to_sql('embeddings', conn, index=False)
+        conn.close()
+        
+        # Create retriever and test actual retrieval
+        retriever = Retriever(embedding_model='fastembed', db_path=Path(db_path))
+        
+        # Test retrieval with a query related to ultrasound
+        query = "ultrasound therapy brain stimulation"
+        results = retriever.retrieve(query, top_k=3)
+        
+        # Verify we got results
+        assert len(results) == 3
+        assert isinstance(results, list)
+        assert all(isinstance(result, str) for result in results)
+        
+        # Verify the first result is most relevant (should be about ultrasound)
+        assert 'ultrasound' in results[0].lower()
+        
+        # Test with a different query
+        query2 = "medical device safety"
+        results2 = retriever.retrieve(query2, top_k=2)
+        
+        assert len(results2) == 2
+        # Should include the medical device regulation chunk
+        assert any('regulation' in result.lower() for result in results2)
+        
+        # Test with top_k larger than available data
+        results3 = retriever.retrieve("biomedical research", top_k=10)
+        assert len(results3) == 5  # Should return all available chunks
+        
+    finally:
+        # Cleanup
+        if os.path.exists(db_path):
+            os.unlink(db_path)
