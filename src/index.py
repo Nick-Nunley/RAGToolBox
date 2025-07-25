@@ -1,24 +1,26 @@
 import argparse
 import os
 import subprocess
+import hashlib
+import json
 import re
 import time
-import openai
 from typing import Optional, List, Tuple
 from pathlib import Path
 from src.chunk import Chunker, HierarchicalChunker, SectionAwareChunker, SlidingWindowChunker
+import sys
 
 
 class Indexer:
     """Indexer class for loading (optional), chunking, and embedding content."""
 
-    def __init__(self, chunker: Chunker, embedding_model: str, kb_dir: Path = Path('assets/kb')):
+    def __init__(self, chunker: Chunker, embedding_model: str, output_dir: Path = Path('assets/kb/embeddings/')):
         self.chunker = chunker
-        supported_embedding_models = ['openai']
+        supported_embedding_models = ['openai', 'fastembed']
         if embedding_model not in supported_embedding_models:
             raise ValueError(f"Unsupported embedding model: {embedding_model}. Embedding model must be one of: {supported_embedding_models}")
         self.embedding_model = embedding_model
-        # OpenAI.api_key = os.getenv("OPENAI_API_KEY")
+        self.output_dir = output_dir
 
     def pre_chunk(self, text: str) -> dict:
         """
@@ -69,8 +71,10 @@ class Indexer:
         Returns a list of embedding vectors.
         """
         if self.embedding_model == "openai":
+            import openai
             client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-            model = "text-embedding-ada-002"
+            # model = "text-embedding-ada-002"
+            model = "text-embedding-3-small"
             for attempt in range(max_retries):
                 try:
                     response = client.embeddings.create(
@@ -83,7 +87,23 @@ class Indexer:
                     print(f"Rate limit hit. Retrying in {wait_time} seconds...")
                     time.sleep(wait_time)
             raise RuntimeError("Failed to embed after multiple retries due to rate limits.")
+        elif self.embedding_model == "fastembed":
+            from fastembed import TextEmbedding
+            model = TextEmbedding()
+            embeddings = [list(model.embed(chunk))[0].tolist() for chunk in chunks]
+            return embeddings
         raise ValueError(f"Embedding model '{self.embedding_model}' not supported.")
+
+    def save_embedding(self, hash_id: str, embedding: list, metadata: dict, chunk: str, output_dir: Path = './assets/kb/') -> None:
+        """Save an embedding to the knowledge base directory."""
+        output_dir.mkdir(parents=True, exist_ok=True)
+        data = {
+            'embedding': embedding,
+            'metadata': metadata,
+            'chunk': chunk
+            }
+        with open(output_dir / f'{hash_id}.json', 'w') as f:
+            json.dump(data, f, indent = 4)
 
     def main(self, args: argparse.Namespace) -> None:
         """Main method for indexing content."""
@@ -134,8 +154,10 @@ class Indexer:
         if chunk_texts:
             embeddings = self.embed(chunk_texts)
             for entry, embedding in zip(chunked_results, embeddings):
-                # Here you can store or index (embedding, entry['chunk'], entry['metadata'], entry['name'])
-                print(f"Indexed {entry['name']} chunk | Metadata: {entry['metadata']} | Embedding: {embedding[:5]}...")
+                chunk = entry['chunk']
+                metadata = entry['metadata']
+                hash_id = hashlib.sha256(chunk.encode('utf-8')).hexdigest()
+                self.save_embedding(hash_id = hash_id, embedding = embedding, metadata = metadata, chunk = chunk, output_dir = self.output_dir)
         else:
             print("No chunks to embed.")
         print("Indexing complete.")
@@ -151,7 +173,7 @@ if __name__ == "__main__":
         help='Directory where knowledge base is stored'
     )
     parser.add_argument(
-        '--embedding-model', '-e', default='openai',
+        '--embedding-model', '-e', default='fastembed',
         help='Embedding model to use'
     )
     # Load subcommand
@@ -166,7 +188,7 @@ if __name__ == "__main__":
     indexer = Indexer(
         chunker = HierarchicalChunker([SectionAwareChunker(), SlidingWindowChunker()]),
         embedding_model = args.embedding_model,
-        kb_dir = Path(args.kb_dir)
+        output_dir = Path(Path(args.kb_dir) / 'embeddings')
         )
     
     indexer.main(args)

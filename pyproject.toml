@@ -21,6 +21,7 @@ bio = "^1.8.0"
 bs4 = "^0.0.2"
 readability-lxml = "^0.8.4.1"
 nltk = "^3.9.1"
+fastembed = "^0.7.1"
 
 
 [build-system]
