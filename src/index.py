@@ -104,6 +104,15 @@ class Indexer:
         with open(output_dir / f'{hash_id}.json', 'w') as f:
             json.dump(data, f, indent = 4)
 
+    def _embed_and_save_in_batch(self, batch, batch_entries):
+        """Embed a batch of chunks and save their embeddings."""
+        embeddings = self.embed(batch)
+        for entry, embedding in zip(batch_entries, embeddings):
+            chunk = entry['chunk']
+            metadata = entry['metadata']
+            hash_id = hashlib.sha256(chunk.encode('utf-8')).hexdigest()
+            self.save_embedding(hash_id=hash_id, embedding=embedding, metadata=metadata, chunk=chunk, output_dir=self.output_dir)
+
     def main(self, args: argparse.Namespace) -> None:
         """Main method for indexing content."""
         if getattr(args, 'command', None) == 'load':
@@ -147,16 +156,29 @@ class Indexer:
                     })
                 print(f"Chunked {name}: {len(chunks)} chunks")
 
-        # 4. Embedding and indexing (single-threaded, rate-limited step)
-        # Collect all chunk texts for embedding
+        # 4. Embedding and indexing (optionally parallelized)
         chunk_texts = [entry['chunk'] for entry in chunked_results]
         if chunk_texts:
-            embeddings = self.embed(chunk_texts)
-            for entry, embedding in zip(chunked_results, embeddings):
-                chunk = entry['chunk']
-                metadata = entry['metadata']
-                hash_id = hashlib.sha256(chunk.encode('utf-8')).hexdigest()
-                self.save_embedding(hash_id = hash_id, embedding = embedding, metadata = metadata, chunk = chunk, output_dir = self.output_dir)
+            if getattr(args, 'parallel_embed', False):
+                num_workers = getattr(args, 'num_workers', 3)
+                batch_size = max(1, len(chunk_texts) // (num_workers * 2))  # heuristic: 2 batches per worker
+                batches = [chunk_texts[i:i+batch_size] for i in range(0, len(chunk_texts), batch_size)]
+
+                print(f"Embedding {len(chunk_texts)} chunks using {num_workers} workers...")
+                with ProcessPoolExecutor(max_workers=num_workers) as executor:
+                    futures = []
+                    for i, batch in enumerate(batches):
+                        batch_entries = chunked_results[i*batch_size:(i+1)*batch_size]
+                        futures.append(executor.submit(self._embed_and_save_in_batch, batch, batch_entries))
+                    for future in as_completed(futures):
+                        future.result()  # raise exceptions if any
+            else:
+                embeddings = self.embed(chunk_texts)
+                for entry, embedding in zip(chunked_results, embeddings):
+                    chunk = entry['chunk']
+                    metadata = entry['metadata']
+                    hash_id = hashlib.sha256(chunk.encode('utf-8')).hexdigest()
+                    self.save_embedding(hash_id = hash_id, embedding = embedding, metadata = metadata, chunk = chunk, output_dir = self.output_dir)
         else:
             print("No chunks to embed.")
         print("Indexing complete.")
@@ -174,6 +196,14 @@ if __name__ == "__main__":
     parser.add_argument(
         '--embedding-model', '-e', default='fastembed',
         help='Embedding model to use'
+    )
+    parser.add_argument(
+        '--parallel-embed', '-p', action='store_true',
+        help='Enable parallel embedding using multiple workers'
+    )
+    parser.add_argument(
+        '--num-workers', '-n', type=int, default=3,
+        help='Number of worker processes for embedding (default: 3)'
     )
     # Load subcommand
     subparsers = parser.add_subparsers(dest='command', help='Available commands')
