@@ -1,5 +1,6 @@
 import pytest
 import argparse
+import sqlite3
 from unittest.mock import patch, MagicMock
 from src.index import Indexer
 from src.chunk import Chunker
@@ -81,3 +82,81 @@ def test_indexer_embed():
 
         result = indexer.embed(chunks)
         assert result == fake_embeddings
+
+
+def test_insert_embeddings_to_db(tmp_path):
+    # Setup
+    output_dir = tmp_path
+    indexer = Indexer(DummyChunker(), embedding_model='openai', output_dir=output_dir)
+    chunked_results = [
+        {'chunk': 'This is chunk 1.', 'metadata': {'source': 'test1'}},
+        {'chunk': 'This is chunk 2.', 'metadata': {'source': 'test2'}},
+    ]
+    embeddings = [[0.1, 0.2, 0.3], [0.4, 0.5, 0.6]]
+    # Act
+    indexer._insert_embeddings_to_db(chunked_results, embeddings)
+    # Assert
+    db_path = output_dir / 'embeddings.db'
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    cursor.execute('SELECT id, chunk, embedding, metadata, source FROM embeddings')
+    rows = cursor.fetchall()
+    assert len(rows) == 2
+    chunks = {row[1] for row in rows}
+    sources = {row[4] for row in rows}
+    assert chunks == {'This is chunk 1.', 'This is chunk 2.'}
+    assert sources == {'test1', 'test2'}
+    conn.close()
+
+def test_embed_and_save_in_batch(tmp_path):
+    # Setup
+    output_dir = tmp_path
+    class FakeIndexer(Indexer):
+        def embed(self, chunks):
+            # Return a fake embedding for each chunk
+            return [[float(i)] for i in range(len(chunks))]
+    indexer = FakeIndexer(DummyChunker(), embedding_model='openai', output_dir=output_dir)
+    batch = ['chunkA', 'chunkB']
+    batch_entries = [
+        {'chunk': 'chunkA', 'metadata': {'source': 'A'}},
+        {'chunk': 'chunkB', 'metadata': {'source': 'B'}},
+    ]
+    # Act
+    indexer._embed_and_save_in_batch(batch, batch_entries)
+    # Assert
+    db_path = output_dir / 'embeddings.db'
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    cursor.execute('SELECT chunk, embedding, source FROM embeddings')
+    rows = cursor.fetchall()
+    assert len(rows) == 2
+    chunks = {row[0] for row in rows}
+    sources = {row[2] for row in rows}
+    assert chunks == {'chunkA', 'chunkB'}
+    assert sources == {'A', 'B'}
+    conn.close()
+
+def test_index_method_single_threaded(tmp_path):
+    output_dir = tmp_path
+    class FakeIndexer(Indexer):
+        def embed(self, chunks):
+            # Return a fake embedding for each chunk
+            return [[float(i)] for i in range(len(chunks))]
+    indexer = FakeIndexer(DummyChunker(), embedding_model='openai', output_dir=output_dir)
+    chunked_results = [
+        {'chunk': 'chunkA', 'metadata': {'source': 'A'}},
+        {'chunk': 'chunkB', 'metadata': {'source': 'B'}},
+    ]
+    # Act
+    indexer.index(chunked_results, parallel_embed=False)
+    # Assert
+    db_path = output_dir / 'embeddings.db'
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    cursor.execute('SELECT chunk, source FROM embeddings')
+    rows = cursor.fetchall()
+    chunks = {row[0] for row in rows}
+    sources = {row[1] for row in rows}
+    assert chunks == {'chunkA', 'chunkB'}
+    assert sources == {'A', 'B'}
+    conn.close()

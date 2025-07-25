@@ -3,6 +3,7 @@ import os
 import subprocess
 import hashlib
 import json
+import sqlite3
 import re
 import time
 from typing import Optional, List, Tuple
@@ -93,25 +94,69 @@ class Indexer:
             return embeddings
         raise ValueError(f"Embedding model '{self.embedding_model}' not supported.")
 
-    def save_embedding(self, hash_id: str, embedding: list, metadata: dict, chunk: str, output_dir: Path = './assets/kb/') -> None:
-        """Save an embedding to the knowledge base directory."""
-        output_dir.mkdir(parents=True, exist_ok=True)
-        data = {
-            'embedding': embedding,
-            'metadata': metadata,
-            'chunk': chunk
-            }
-        with open(output_dir / f'{hash_id}.json', 'w') as f:
-            json.dump(data, f, indent = 4)
-
-    def _embed_and_save_in_batch(self, batch, batch_entries):
-        """Embed a batch of chunks and save their embeddings."""
-        embeddings = self.embed(batch)
-        for entry, embedding in zip(batch_entries, embeddings):
+    def _insert_embeddings_to_db(self, chunked_results: list, embeddings: list) -> None:
+        """
+        Insert chunk, embedding, and metadata directly into the SQLite database.
+        """
+        db_path = self.output_dir / 'embeddings.db'
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS embeddings (
+                id TEXT PRIMARY KEY,
+                chunk TEXT,
+                embedding TEXT,
+                metadata TEXT,
+                source TEXT
+            )
+        ''')
+        for entry, embedding in zip(chunked_results, embeddings):
             chunk = entry['chunk']
             metadata = entry['metadata']
             hash_id = hashlib.sha256(chunk.encode('utf-8')).hexdigest()
-            self.save_embedding(hash_id=hash_id, embedding=embedding, metadata=metadata, chunk=chunk, output_dir=self.output_dir)
+            source = metadata.get('source', None)
+            cursor.execute('''
+                INSERT OR REPLACE INTO embeddings (id, chunk, embedding, metadata, source)
+                VALUES (?, ?, ?, ?, ?)
+            ''', (hash_id, chunk, json.dumps(embedding), json.dumps(metadata), source))
+        conn.commit()
+        conn.close()
+
+    def _embed_and_save_in_batch(self, batch: List[str], batch_entries: List[dict]) -> None:
+        """
+        Embed a batch of chunks and insert their embeddings into the SQLite database.
+        """
+        embeddings = self.embed(batch)
+        self._insert_embeddings_to_db(batch_entries, embeddings)
+
+    def index(self, chunked_results: list[dict], parallel_embed: bool = False, num_workers: int = 3) -> None:
+        """
+        Embed the provided chunks and store results in the SQLite database, optionally in parallel.
+        Args:
+            chunked_results: List of dicts with 'chunk' and 'metadata'.
+            parallel_embed: If True, use multiple processes for embedding.
+            num_workers: Number of worker processes if parallel_embed is True.
+        """
+        chunk_texts = [entry['chunk'] for entry in chunked_results]
+        if not chunk_texts:
+            print("No chunks to embed.")
+            return
+        if parallel_embed:
+            batch_size = max(1, len(chunk_texts) // (num_workers * 2))  # heuristic: 2 batches per worker
+            batches = [chunk_texts[i:i+batch_size] for i in range(0, len(chunk_texts), batch_size)]
+            from concurrent.futures import ProcessPoolExecutor, as_completed
+            print(f"Embedding {len(chunk_texts)} chunks using {num_workers} workers...")
+            with ProcessPoolExecutor(max_workers=num_workers) as executor:
+                futures = []
+                for i, batch in enumerate(batches):
+                    batch_entries = chunked_results[i*batch_size:(i+1)*batch_size]
+                    futures.append(executor.submit(self._embed_and_save_in_batch, batch, batch_entries))
+                for future in as_completed(futures):
+                    future.result()  # raise exceptions if any
+        else:
+            embeddings = self.embed(chunk_texts)
+            self._insert_embeddings_to_db(chunked_results, embeddings)
+        print("Indexing complete.")
 
     def main(self, args: argparse.Namespace) -> None:
         """Main method for indexing content."""
@@ -157,31 +202,11 @@ class Indexer:
                 print(f"Chunked {name}: {len(chunks)} chunks")
 
         # 4. Embedding and indexing (optionally parallelized)
-        chunk_texts = [entry['chunk'] for entry in chunked_results]
-        if chunk_texts:
-            if getattr(args, 'parallel_embed', False):
-                num_workers = getattr(args, 'num_workers', 3)
-                batch_size = max(1, len(chunk_texts) // (num_workers * 2))  # heuristic: 2 batches per worker
-                batches = [chunk_texts[i:i+batch_size] for i in range(0, len(chunk_texts), batch_size)]
-
-                print(f"Embedding {len(chunk_texts)} chunks using {num_workers} workers...")
-                with ProcessPoolExecutor(max_workers=num_workers) as executor:
-                    futures = []
-                    for i, batch in enumerate(batches):
-                        batch_entries = chunked_results[i*batch_size:(i+1)*batch_size]
-                        futures.append(executor.submit(self._embed_and_save_in_batch, batch, batch_entries))
-                    for future in as_completed(futures):
-                        future.result()  # raise exceptions if any
-            else:
-                embeddings = self.embed(chunk_texts)
-                for entry, embedding in zip(chunked_results, embeddings):
-                    chunk = entry['chunk']
-                    metadata = entry['metadata']
-                    hash_id = hashlib.sha256(chunk.encode('utf-8')).hexdigest()
-                    self.save_embedding(hash_id = hash_id, embedding = embedding, metadata = metadata, chunk = chunk, output_dir = self.output_dir)
-        else:
-            print("No chunks to embed.")
-        print("Indexing complete.")
+        self.index(
+            chunked_results,
+            parallel_embed=getattr(args, 'parallel_embed', False),
+            num_workers=getattr(args, 'num_workers', 3)
+            )
 
 
 if __name__ == "__main__":
