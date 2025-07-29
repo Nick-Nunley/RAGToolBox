@@ -2,6 +2,7 @@ import os
 import json
 from typing import List, Optional
 from pathlib import Path
+from src.retriever import Retriever
 
 
 class Augmenter:
@@ -211,20 +212,20 @@ Answer:"""
 if __name__ == "__main__":
 
     ### Test code
-    # Try with local model first, then fall back to API
-    try:
-        print("Attempting to use local model...")
-        augmenter = Augmenter(use_local=True)
-    except Exception as e:
-        print(f"Local model failed: {e}")
-        print("Falling back to API model...")
-        augmenter = Augmenter(use_local=False)
+    retriever = Retriever(
+        embedding_model = 'fastembed',
+        db_path = Path('assets/kb/embeddings/embeddings.db')
+        )
+
+    augmenter = Augmenter()
     
-    test_prompt = 'What does LIFU stand for?'
+    test_prompt = 'Can you tell me about LIFU? What does it stand for and how does it work?'
+
+    context = retriever.retrieve(test_prompt)
 
     response = augmenter.generate_response(
         test_prompt,
-        ['LIFU is a new technology that uses ultrasound noninvasively', 'LIFU stands for "Low-Intesity focused ultra sound"']
+        context
         )
     
     print(response)
