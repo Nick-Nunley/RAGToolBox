@@ -93,22 +93,24 @@ Answer:"""
         
         return prompt
     
-    def _call_llm(self, prompt: str) -> str:
+    def _call_llm(self, prompt: str, temperature: float = 0.25, max_new_tokens: int = 200) -> str:
         """
         Call the language model with the formatted prompt.
         
         Args:
             prompt: The formatted prompt to send to the LLM
+            temperature: Controls randomness in generation (0.0 = deterministic, 1.0 = very random)
+            max_new_tokens: Maximum number of tokens to generate
             
         Returns:
             Generated response from the LLM
         """
         if self.use_local:
-            return self._call_local_model(prompt)
+            return self._call_local_model(prompt, temperature, max_new_tokens)
         else:
-            return self._call_huggingface_api(prompt)
+            return self._call_huggingface_api(prompt, temperature, max_new_tokens)
     
-    def _call_local_model(self, prompt: str) -> str:
+    def _call_local_model(self, prompt: str, temperature: float = 0.7, max_new_tokens: int = 200) -> str:
         """Call the local model using transformers."""
         try:
             import torch
@@ -120,8 +122,8 @@ Answer:"""
             with torch.no_grad():
                 outputs = self.model.generate(
                     inputs,
-                    max_length=inputs.shape[1] + 200,  # Generate up to 200 more tokens
-                    temperature=0.7,
+                    max_length=inputs.shape[1] + max_new_tokens,
+                    temperature=temperature,
                     do_sample=True,
                     pad_token_id=self.tokenizer.eos_token_id
                 )
@@ -137,7 +139,7 @@ Answer:"""
         except Exception as e:
             raise RuntimeError(f"Error calling local model: {str(e)}")
     
-    def _call_huggingface_api(self, prompt: str, temperature: float = 0.25, max_new_tokens: int = 150) -> str:
+    def _call_huggingface_api(self, prompt: str, temperature: float = 0.25, max_new_tokens: int = 200) -> str:
         """Call Hugging Face inference API."""
         try:
             # Use the InferenceClient to generate text using chat completions
@@ -167,13 +169,15 @@ Answer:"""
             else:
                 raise RuntimeError(f"Error calling Hugging Face API: {str(e)}")
     
-    def generate_response(self, query: str, retrieved_chunks: List[str]) -> str:
+    def generate_response(self, query: str, retrieved_chunks: List[str], temperature: float = 0.25, max_new_tokens: int = 200) -> str:
         """
         Generate a response using the retrieved chunks as context.
         
         Args:
             query: The user's original query
             retrieved_chunks: List of retrieved text chunks from the Retriever
+            temperature: Controls randomness in generation (0.0 = deterministic, 1.0 = very random)
+            max_new_tokens: Maximum number of tokens to generate
             
         Returns:
             Generated response from the LLM
@@ -185,28 +189,32 @@ Answer:"""
         prompt = self._format_prompt(query, retrieved_chunks)
         
         # Call the LLM
-        response = self._call_llm(prompt)
+        response = self._call_llm(prompt, temperature, max_new_tokens)
         
         return response
     
-    def generate_response_with_sources(self, query: str, retrieved_chunks: List[str]) -> dict:
+    def generate_response_with_sources(self, query: str, retrieved_chunks: List[str], temperature: float = 0.25, max_new_tokens: int = 200) -> dict:
         """
         Generate a response with source information.
         
         Args:
             query: The user's original query
             retrieved_chunks: List of retrieved text chunks from the Retriever
+            temperature: Controls randomness in generation (0.0 = deterministic, 1.0 = very random)
+            max_new_tokens: Maximum number of tokens to generate
             
         Returns:
             Dictionary containing response and source information
         """
-        response = self.generate_response(query, retrieved_chunks)
+        response = self.generate_response(query, retrieved_chunks, temperature, max_new_tokens)
         
         return {
             "response": response,
             "sources": retrieved_chunks,
             "num_sources": len(retrieved_chunks),
-            "query": query
+            "query": query,
+            "temperature": temperature,
+            "max_new_tokens": max_new_tokens
         }
 
 if __name__ == "__main__":

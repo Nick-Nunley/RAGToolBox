@@ -355,7 +355,7 @@ def test_call_llm_local():
         result = augmenter._call_llm("test prompt")
         
         assert result == "Local response"
-        mock_local.assert_called_once_with("test prompt")
+        mock_local.assert_called_once_with("test prompt", 0.25, 200)
 
 
 def test_call_llm_api():
@@ -367,7 +367,7 @@ def test_call_llm_api():
         result = augmenter._call_llm("test prompt")
         
         assert result == "API response"
-        mock_api.assert_called_once_with("test prompt")
+        mock_api.assert_called_once_with("test prompt", 0.25, 200)
 
 
 def test_generate_response_with_chunks():
@@ -386,7 +386,7 @@ def test_generate_response_with_chunks():
         
         assert result == "Generated answer"
         mock_format.assert_called_once_with(query, chunks)
-        mock_call.assert_called_once_with("Formatted prompt")
+        mock_call.assert_called_once_with("Formatted prompt", 0.25, 200)
 
 
 def test_generate_response_empty_chunks():
@@ -415,10 +415,12 @@ def test_generate_response_with_sources():
             "response": "Generated answer",
             "sources": ["Chunk 1", "Chunk 2"],
             "num_sources": 2,
-            "query": "What is LIFU?"
+            "query": "What is LIFU?",
+            "temperature": 0.25,
+            "max_new_tokens": 200
         }
         assert result == expected
-        mock_generate.assert_called_once_with(query, chunks)
+        mock_generate.assert_called_once_with(query, chunks, 0.25, 200)
 
 
 # =====================
@@ -521,6 +523,8 @@ def test_augmenter_with_retriever_integration():
         assert result["num_sources"] == 3
         assert result["query"] == query
         assert len(result["sources"]) == 3
+        assert result["temperature"] == 0.25
+        assert result["max_new_tokens"] == 200
 
 
 def test_augmenter_error_handling():
@@ -582,3 +586,6 @@ def test_augmenter_custom_parameters():
         # Verify the custom model name was used in the API call
         call_args = mock_client.chat.completions.create.call_args
         assert call_args[1]['model'] == "custom/model"
+        # Verify default parameters were used
+        assert call_args[1]['temperature'] == 0.25
+        assert call_args[1]['max_tokens'] == 200
