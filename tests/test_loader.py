@@ -1,3 +1,4 @@
+import os
 import pytest
 import requests
 import pdfplumber
@@ -70,6 +71,57 @@ def test_detect_loader_ncbi() -> None:
     url = 'https://pmc.ncbi.nlm.nih.gov/articles/PMC123456/'
     cls = BaseLoader.detect_loader(url, b'ignored')
     assert cls is NCBILoader
+
+def test_detect_loader_local_txt() -> None:
+    # Mock file existence check
+    original_exists = os.path.exists
+    
+    def mock_exists(path: str) -> bool:
+        if path == '/path/to/file.txt':
+            return True
+        return original_exists(path)
+    
+    # Temporarily replace os.path.exists
+    os.path.exists = mock_exists
+    try:
+        cls = BaseLoader.detect_loader('/path/to/file.txt', b'hello world')
+        assert cls is TextLoader
+    finally:
+        os.path.exists = original_exists
+
+def test_detect_loader_local_pdf() -> None:
+    # Mock file existence check
+    original_exists = os.path.exists
+    
+    def mock_exists(path: str) -> bool:
+        if path == '/path/to/document.pdf':
+            return True
+        return original_exists(path)
+    
+    # Temporarily replace os.path.exists
+    os.path.exists = mock_exists
+    try:
+        cls = BaseLoader.detect_loader('/path/to/document.pdf', b'%PDF-1.4')
+        assert cls is PDFLoader
+    finally:
+        os.path.exists = original_exists
+
+def test_detect_loader_local_html() -> None:
+    # Mock file existence check
+    original_exists = os.path.exists
+    
+    def mock_exists(path: str) -> bool:
+        if path == '/path/to/page.html':
+            return True
+        return original_exists(path)
+    
+    # Temporarily replace os.path.exists
+    os.path.exists = mock_exists
+    try:
+        cls = BaseLoader.detect_loader('/path/to/page.html', b'<html><body>content</body></html>')
+        assert cls is HTMLLoader
+    finally:
+        os.path.exists = original_exists
 
 def test_ncbi_loader_fetch_success(monkeypatch: Any) -> None:
     calls = []
@@ -282,3 +334,48 @@ def test_full_process_pubmed(monkeypatch: Any, tmp_path: Any) -> None:
     assert 'Jane Smith' in content
     assert 'Test Journal' in content
     assert '10.1234/testdoi' in content
+
+def test_full_process_local_file(tmp_path: Any) -> None:
+    # Create a temporary text file
+    test_file = tmp_path / 'test_document.txt'
+    test_content = 'This is a test document with some content.'
+    with open(test_file, 'w') as f:
+        f.write(test_content)
+    
+    # Process the local file
+    loader = TextLoader(str(test_file), str(tmp_path / 'output'))
+    loader.process()
+    
+    # Check that output file was created
+    output_file = tmp_path / 'output' / 'test_document.txt'
+    assert output_file.exists()
+    
+    # Check content
+    with open(output_file) as f:
+        content = f.read()
+        assert content == test_content
+
+def test_full_process_local_pdf(monkeypatch: Any, tmp_path: Any) -> None:
+    # Mock pdfplumber.open to return DummyPDF with pages
+    def mock_pdf_open(file_obj: Any) -> DummyPDF:
+        return DummyPDF([DummyPage("Page 1 content"), DummyPage("Page 2 content")])
+    monkeypatch.setattr(pdfplumber, 'open', mock_pdf_open)
+    
+    # Create a temporary PDF file (content doesn't matter since we mock pdfplumber)
+    test_file = tmp_path / 'test_document.pdf'
+    with open(test_file, 'wb') as f:
+        f.write(b'%PDF-1.4 fake pdf content')
+    
+    # Process the local file
+    loader = PDFLoader(str(test_file), str(tmp_path / 'output'))
+    loader.process()
+    
+    # Check that output file was created
+    output_file = tmp_path / 'output' / 'test_document.txt'
+    assert output_file.exists()
+    
+    # Check content
+    with open(output_file) as f:
+        content = f.read()
+        assert 'Page 1 content' in content
+        assert 'Page 2 content' in content

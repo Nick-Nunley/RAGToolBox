@@ -15,43 +15,70 @@ from bs4.element import NavigableString
 
 class BaseLoader:
     """
-    Abstract base class for fetching, converting, and saving content from a URL.
+    Abstract base class for fetching, converting, and saving content from a URL or local file.
     """
-    url: str
+    source: str  # Can be URL or file path
     output_dir: str
     raw_content: Optional[Union[bytes, str]]
     text: str
+    is_local_file: bool
 
-    def __init__(self, url: str, output_dir: str) -> None:
-        self.url = url
+    def __init__(self, source: str, output_dir: str) -> None:
+        self.source = source
         self.output_dir = output_dir
         self.raw_content = None
         self.text = ""
+        self.is_local_file = os.path.exists(source) and os.path.isfile(source)
 
     def fetch(self) -> None:
-        """Fetch raw bytes from the URL."""
-        response = requests.get(self.url)
-        response.raise_for_status()
-        self.raw_content = response.content
+        """Fetch raw bytes from the URL or local file."""
+        if self.is_local_file:
+            with open(self.source, 'rb') as f:
+                self.raw_content = f.read()
+        else:
+            response = requests.get(self.source)
+            response.raise_for_status()
+            self.raw_content = response.content
 
     @staticmethod
-    def detect_loader(url: str, content: bytes) -> type:
+    def detect_loader(source: str, content: bytes) -> type:
         """
         Factory method to select the appropriate Loader subclass.
         """
-        path = urlparse(url).path.lower()
-        ext = os.path.splitext(path)[1]
-        head = content[:512].lstrip().lower()
+        # Check if source is a local file
+        if os.path.exists(source) and os.path.isfile(source):
+            # For local files, use file extension
+            ext = os.path.splitext(source)[1].lower()
+            if ext == '.pdf':
+                return PDFLoader
+            elif ext in ['.txt', '.md']:
+                return TextLoader
+            elif ext in ['.html', '.htm']:
+                return HTMLLoader
+            else:
+                # Try to detect by content
+                head = content[:512].lstrip().lower()
+                if head.startswith(b'<html') or head.startswith(b'<!doctype html'):
+                    return HTMLLoader
+                elif head.startswith(b'%pdf'):
+                    return PDFLoader
+                else:
+                    return TextLoader  # Default to text loader for unknown local files
+        else:
+            # URL-based detection (existing logic)
+            path = urlparse(source).path.lower()
+            ext = os.path.splitext(path)[1]
+            head = content[:512].lstrip().lower()
 
-        if 'ncbi.nlm.nih.gov' in urlparse(url).netloc:
-            return NCBILoader
-        if ext in ['.html', '.htm'] or head.startswith(b'<html') or head.startswith(b'<!doctype html'):
-            return HTMLLoader
-        if ext == '.pdf':
-            return PDFLoader
-        if ext in ['.txt', '.md']:
-            return TextLoader
-        return UnknownLoader
+            if 'ncbi.nlm.nih.gov' in urlparse(source).netloc:
+                return NCBILoader
+            if ext in ['.html', '.htm'] or head.startswith(b'<html') or head.startswith(b'<!doctype html'):
+                return HTMLLoader
+            if ext == '.pdf':
+                return PDFLoader
+            if ext in ['.txt', '.md']:
+                return TextLoader
+            return UnknownLoader
 
     def convert(self) -> None:
         """Convert raw content bytes to plain text. Implemented by subclasses."""
@@ -60,8 +87,15 @@ class BaseLoader:
     def save(self) -> None:
         """Save the converted text to a .txt file in the output directory."""
         os.makedirs(self.output_dir, exist_ok=True)
-        parsed = urlparse(self.url)
-        name = os.path.splitext(os.path.basename(parsed.path) or 'document')[0]
+        
+        if self.is_local_file:
+            # For local files, use the original filename without extension
+            name = os.path.splitext(os.path.basename(self.source))[0]
+        else:
+            # For URLs, use the existing logic
+            parsed = urlparse(self.source)
+            name = os.path.splitext(os.path.basename(parsed.path) or 'document')[0]
+        
         filename = f"{name}.txt"
         out_path = os.path.join(self.output_dir, filename)
         with open(out_path, 'w', encoding='utf-8') as f:
@@ -70,27 +104,27 @@ class BaseLoader:
 
     def process(self) -> None:
         """Full pipeline: fetch, convert, and save."""
-        print(f"Processing: {self.url}")
+        print(f"Processing: {self.source}")
         self.fetch()
         self.convert()
         if self.text:
             self.save()
         else:
-            print(f"Warning: No text extracted from {self.url}")
+            print(f"Warning: No text extracted from {self.source}")
 
 class NCBILoader(BaseLoader):
     pmc_id: str
     _used_pdf: bool
     article_data: Optional[Dict[str, Any]]
 
-    def __init__(self, url: str, output_dir: str) -> None:
-        super().__init__(url, output_dir)
-        self.pmc_id = os.path.basename(urlparse(self.url).path.rstrip('/'))
+    def __init__(self, source: str, output_dir: str) -> None:
+        super().__init__(source, output_dir)
+        self.pmc_id = os.path.basename(urlparse(self.source).path.rstrip('/'))
         self._used_pdf = False
         self.article_data = None
 
     def _get_ncbi_db_from_url(self) -> str:
-        netloc = urlparse(self.url).netloc
+        netloc = urlparse(self.source).netloc
         if 'pmc.' in netloc:
             return 'pmc'
         elif 'pubmed.' in netloc:
@@ -100,7 +134,7 @@ class NCBILoader(BaseLoader):
 
     def fetch(self) -> None:
         """Fetch content via Entrez efetch for PMC/PubMed IDs, prefer PDF if available."""
-        pmc_id = os.path.basename(urlparse(self.url).path.rstrip('/'))
+        pmc_id = os.path.basename(urlparse(self.source).path.rstrip('/'))
         db = self._get_ncbi_db_from_url()
         tried: List[str] = []
         # Fetch XML from the correct db
@@ -119,7 +153,7 @@ class NCBILoader(BaseLoader):
             print(f"PDF link found for {pmc_id}: {pdf_url}\nAttempting to download and extract text from PDF.")
             try:
                 pdf_bytes = self._download_pdf(pdf_url)
-                pdf_loader = PDFLoader(self.url, self.output_dir)
+                pdf_loader = PDFLoader(self.source, self.output_dir)
                 pdf_loader.raw_content = pdf_bytes
                 pdf_loader.convert()
                 self.text = pdf_loader.text
@@ -149,7 +183,7 @@ class NCBILoader(BaseLoader):
                         if href.startswith('http'):
                             return href
                         else:
-                            pmc_id = os.path.basename(urlparse(self.url).path.rstrip('/'))
+                            pmc_id = os.path.basename(urlparse(self.source).path.rstrip('/'))
                             return f"https://www.ncbi.nlm.nih.gov/pmc/articles/{pmc_id}/pdf/{href}"
             return None
         except Exception as e:
@@ -343,8 +377,8 @@ class NCBILoader(BaseLoader):
 
 class HTMLLoader(BaseLoader):
 
-    def __init__(self, url, output_dir, use_readability: bool = False):
-        super().__init__(url, output_dir)
+    def __init__(self, source, output_dir, use_readability: bool = False):
+        super().__init__(source, output_dir)
         self._USE_READABILITY = use_readability
 
     def _slugify(self, text: str, maxlen: int = 80) -> str:
@@ -404,7 +438,7 @@ class HTMLLoader(BaseLoader):
 
         # Metadata block
         md_lines.append(f"# {title}\n")
-        md_lines.append(f"**Source:** {self.url}")
+        md_lines.append(f"**Source:** {self.source}")
         md_lines.append("---\n")
 
         # Convert HTML structure to markdown
@@ -486,7 +520,7 @@ class HTMLLoader(BaseLoader):
             name = self._slugify(title)
         else:
             # Fallback to base class logic
-            parsed = urlparse(self.url)
+            parsed = urlparse(self.source)
             basename = os.path.basename(parsed.path) or "document"
             name = os.path.splitext(basename)[0]
         filename = f"{name}.txt"
@@ -522,16 +556,16 @@ class UnknownLoader(BaseLoader):
 
     def convert(self) -> None:
         """Handle unknown formats gracefully by skipping."""
-        print(f"Unknown format for URL: {self.url}")
+        print(f"Unknown format for URL: {self.source}")
         self.text = ''
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Fetch multiple URLs and convert content to plain text for chunking"
+        description="Fetch multiple URLs or local files and convert content to plain text for chunking"
     )
     parser.add_argument(
-        'urls', nargs='+', help='One or more URLs to ingest'
+        'sources', nargs='+', help='One or more URLs or local file paths to ingest'
     )
     parser.add_argument(
         '--output-dir', '-o', default='assets/kb',
@@ -556,15 +590,22 @@ def main() -> None:
         if not Entrez.email:
             print("Warning: No email provided for NCBI E-utilities; they may block requests.")
 
-    for url in args.urls:
+    for source in args.sources:
         try:
-            raw = requests.get(url).content
+            # Check if source is a local file
+            if os.path.exists(source) and os.path.isfile(source):
+                # For local files, read directly
+                with open(source, 'rb') as f:
+                    raw = f.read()
+            else:
+                # For URLs, fetch via requests
+                raw = requests.get(source).content
         except Exception as e:
-            print(f"Failed to fetch {url}: {e}")
+            print(f"Failed to fetch {source}: {e}")
             continue
 
-        LoaderClass = BaseLoader.detect_loader(url, raw)
-        loader = LoaderClass(url, args.output_dir)
+        LoaderClass = BaseLoader.detect_loader(source, raw)
+        loader = LoaderClass(source, args.output_dir)
         loader.raw_content = raw
         loader.process()
 
