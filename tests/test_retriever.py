@@ -16,7 +16,7 @@ from src.retriever import Retriever
 # UNIT TESTS
 # =====================
 
-def test_retriever_init_valid_models() -> None:
+def test_retriever_init_valid_models(tmp_path: Path) -> None:
     """Test Retriever initialization with valid embedding models"""
     # Test with openai
     retriever = Retriever(embedding_model='openai')
@@ -29,6 +29,7 @@ def test_retriever_init_valid_models() -> None:
     
     # Test with custom db path
     custom_path = Path('custom/path/embeddings.db')
+    custom_path = tmp_path / 'custom' / 'embeddings.db'
     retriever = Retriever(embedding_model='openai', db_path=custom_path)
     assert retriever.db_path == custom_path
 
