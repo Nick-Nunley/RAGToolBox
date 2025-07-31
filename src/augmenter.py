@@ -162,6 +162,7 @@ Answer:"""
         except Exception as e:
             # Provide helpful error message for common issues
             error_str = str(e).lower()
+            print(error_str)
             if "404" in error_str or "not found" in error_str or "stopiteration" in error_str:
                 raise RuntimeError(f"Model '{self.model_name}' is not available on Hugging Face's inference API. "
                                  f"Try using a different model like 'deepseek-ai/DeepSeek-V3-0324', 'meta-llama/Llama-2-7b-chat-hf', or set use_local=True to use local models.")

@@ -1,26 +1,40 @@
 import argparse
 import os
 import subprocess
-import hashlib
-import json
-import sqlite3
 import re
 import time
-from typing import Optional, List, Tuple
+from typing import Optional, List, Tuple, Dict, Any
 from pathlib import Path
 from src.chunk import Chunker, HierarchicalChunker, SectionAwareChunker, SlidingWindowChunker
+from src.vector_store import VectorStoreFactory, VectorStoreBackend
 
 
 class Indexer:
     """Indexer class for loading (optional), chunking, and embedding content."""
 
-    def __init__(self, chunker: Chunker, embedding_model: str, output_dir: Path = Path('assets/kb/embeddings/')):
+    def __init__(self, chunker: Chunker, embedding_model: str, 
+                 vector_store_backend: str = 'sqlite', 
+                 vector_store_config: Optional[dict] = None,
+                 output_dir: Path = Path('assets/kb/embeddings/')):
         self.chunker = chunker
         supported_embedding_models = ['openai', 'fastembed']
         if embedding_model not in supported_embedding_models:
             raise ValueError(f"Unsupported embedding model: {embedding_model}. Embedding model must be one of: {supported_embedding_models}")
         self.embedding_model = embedding_model
         self.output_dir = output_dir
+        
+        # Initialize vector store backend
+        self.vector_store_config = vector_store_config or {}
+        if vector_store_backend == 'sqlite':
+            # For SQLite, use the output_dir to determine db_path
+            db_path = self.output_dir / 'embeddings.db'
+            self.vector_store_config['db_path'] = db_path
+        
+        self.vector_store = VectorStoreFactory.create_backend(
+            vector_store_backend, 
+            **self.vector_store_config
+        )
+        self.vector_store.initialize()
 
     def pre_chunk(self, text: str) -> dict:
         """
@@ -96,31 +110,9 @@ class Indexer:
 
     def _insert_embeddings_to_db(self, chunked_results: list, embeddings: list) -> None:
         """
-        Insert chunk, embedding, and metadata directly into the SQLite database.
+        Insert chunk, embedding, and metadata into the vector store backend.
         """
-        db_path = self.output_dir / 'embeddings.db'
-        conn = sqlite3.connect(db_path)
-        cursor = conn.cursor()
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS embeddings (
-                id TEXT PRIMARY KEY,
-                chunk TEXT,
-                embedding TEXT,
-                metadata TEXT,
-                source TEXT
-            )
-        ''')
-        for entry, embedding in zip(chunked_results, embeddings):
-            chunk = entry['chunk']
-            metadata = entry['metadata']
-            hash_id = hashlib.sha256(chunk.encode('utf-8')).hexdigest()
-            source = metadata.get('source', None)
-            cursor.execute('''
-                INSERT OR REPLACE INTO embeddings (id, chunk, embedding, metadata, source)
-                VALUES (?, ?, ?, ?, ?)
-            ''', (hash_id, chunk, json.dumps(embedding), json.dumps(metadata), source))
-        conn.commit()
-        conn.close()
+        self.vector_store.insert_embeddings(chunked_results, embeddings)
 
     def _embed_and_save_in_batch(self, batch: List[str], batch_entries: List[dict]) -> None:
         """
@@ -230,6 +222,22 @@ if __name__ == "__main__":
         '--num-workers', '-n', type=int, default=3,
         help='Number of worker processes for embedding (default: 3)'
     )
+    parser.add_argument(
+        '--vector-store', '-v', default='sqlite', choices=['sqlite', 'chroma'],
+        help='Vector store backend to use (default: sqlite)'
+    )
+    parser.add_argument(
+        '--chroma-url', type=str,
+        help='Chroma server URL (e.g., http://localhost:8000) for remote Chroma'
+    )
+    parser.add_argument(
+        '--chroma-persist-dir', type=str,
+        help='Directory to persist Chroma data locally'
+    )
+    parser.add_argument(
+        '--collection-name', type=str, default='rag_collection',
+        help='Collection name for Chroma (default: rag_collection)'
+    )
     # Load subcommand
     subparsers = parser.add_subparsers(dest='command', help='Available commands')
     load_parser = subparsers.add_parser('load', help='Load documents from URLs')
@@ -239,9 +247,20 @@ if __name__ == "__main__":
     load_parser.add_argument('--use-readability', action='store_true', help='Use readability fallback')
     args = parser.parse_args()
 
+    # Prepare vector store configuration
+    vector_store_config = {}
+    if args.vector_store == 'chroma':
+        if args.chroma_url:
+            vector_store_config['chroma_client_url'] = args.chroma_url
+        if args.chroma_persist_dir:
+            vector_store_config['persist_directory'] = args.chroma_persist_dir
+        vector_store_config['collection_name'] = args.collection_name
+    
     indexer = Indexer(
         chunker = HierarchicalChunker([SectionAwareChunker(), SlidingWindowChunker()]),
         embedding_model = args.embedding_model,
+        vector_store_backend = args.vector_store,
+        vector_store_config = vector_store_config,
         output_dir = Path(Path(args.kb_dir) / 'embeddings')
         )
     

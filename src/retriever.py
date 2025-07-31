@@ -2,23 +2,39 @@ import argparse
 import os
 import time
 import json
-from typing import List
+from typing import List, Optional, Dict, Any
 from pathlib import Path
 import numpy as np
 import pandas as pd
 import sqlite3
+from src.vector_store import VectorStoreFactory, VectorStoreBackend
 
 
 
 class Retriever:
     """Retriever class for retrieving relevant chunks from the knowledge base"""
 
-    def __init__(self, embedding_model: str, db_path: Path = Path('assets/kb/embeddings.db')):
+    def __init__(self, embedding_model: str, 
+                 vector_store_backend: str = 'sqlite', 
+                 vector_store_config: Optional[dict] = None,
+                 db_path: Path = Path('assets/kb/embeddings.db')):
         supported_embedding_models = ['openai', 'fastembed']
         if embedding_model not in supported_embedding_models:
             raise ValueError(f"Unsupported embedding model: {embedding_model}. Embedding model must be one of: {supported_embedding_models}")
         self.embedding_model = embedding_model
         self.db_path = db_path
+        
+        # Initialize vector store backend
+        self.vector_store_config = vector_store_config or {}
+        if vector_store_backend == 'sqlite':
+            # For SQLite, use the db_path to determine vector store path
+            self.vector_store_config['db_path'] = self.db_path
+        
+        self.vector_store = VectorStoreFactory.create_backend(
+            vector_store_backend, 
+            **self.vector_store_config
+        )
+        self.vector_store.initialize()
 
     def _load_db(self) -> pd.DataFrame:
         """Method to load the database into a pandas dataframe"""
@@ -54,12 +70,24 @@ class Retriever:
 
     def retrieve(self, query: str, top_k: int = 10, max_retries: int = 5) -> List[str]:
         """Method to retrieve the top k results from the knowledge base"""
-        query = self._embed_query(query = query, max_retries = max_retries)
-        df = self._load_db()
-        df['embedding'] = df['embedding'].apply(json.loads)
-        df['similarity'] = df['embedding'].apply(lambda x: np.dot(x, query))
-        df = df.sort_values(by='similarity', ascending=False)
-        return df['chunk'].head(top_k).tolist()
+        query_embedding = self._embed_query(query=query, max_retries=max_retries)
+        
+        # Get all embeddings from vector store
+        embeddings_data = self.vector_store.get_all_embeddings()
+        
+        if not embeddings_data:
+            return []
+        
+        # Calculate similarities
+        similarities = []
+        for item in embeddings_data:
+            embedding = np.array(item['embedding'])
+            similarity = np.dot(embedding, query_embedding)
+            similarities.append((similarity, item['chunk']))
+        
+        # Sort by similarity and return top_k chunks
+        similarities.sort(key=lambda x: x[0], reverse=True)
+        return [chunk for similarity, chunk in similarities[:top_k]]
 
 
 if __name__ == "__main__":

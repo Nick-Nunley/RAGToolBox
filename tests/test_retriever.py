@@ -52,22 +52,38 @@ def test_load_db_success() -> None:
     try:
         # Create test database
         conn = sqlite3.connect(db_path)
-        test_data = pd.DataFrame({
-            'id': [1, 2, 3],
-            'text': ['test text 1', 'test text 2', 'test text 3'],
-            'embedding': ['[0.1, 0.2, 0.3]', '[0.4, 0.5, 0.6]', '[0.7, 0.8, 0.9]']
-        })
-        test_data.to_sql('embeddings', conn, index=False)
+        cursor = conn.cursor()
+        cursor.execute('''
+            CREATE TABLE embeddings (
+                id TEXT PRIMARY KEY,
+                chunk TEXT,
+                embedding TEXT,
+                metadata TEXT,
+                source TEXT
+            )
+        ''')
+        
+        # Insert test data
+        test_data = [
+            ('hash1', 'test text 1', '[0.1, 0.2, 0.3]', '{"title": "Test 1"}', 'test1.txt'),
+            ('hash2', 'test text 2', '[0.4, 0.5, 0.6]', '{"title": "Test 2"}', 'test2.txt'),
+            ('hash3', 'test text 3', '[0.7, 0.8, 0.9]', '{"title": "Test 3"}', 'test3.txt')
+        ]
+        cursor.executemany(
+            'INSERT INTO embeddings (id, chunk, embedding, metadata, source) VALUES (?, ?, ?, ?, ?)',
+            test_data
+        )
+        conn.commit()
         conn.close()
         
         # Test loading
         retriever = Retriever(embedding_model='openai', db_path=Path(db_path))
-        df = retriever._load_db()
+        embeddings_data = retriever.vector_store.get_all_embeddings()
         
-        assert isinstance(df, pd.DataFrame)
-        assert len(df) == 3
-        assert list(df.columns) == ['id', 'text', 'embedding']
-        assert df.iloc[0]['text'] == 'test text 1'
+        assert len(embeddings_data) == 3
+        assert embeddings_data[0]['chunk'] == 'test text 1'
+        assert embeddings_data[1]['chunk'] == 'test text 2'
+        assert embeddings_data[2]['chunk'] == 'test text 3'
         
     finally:
         # Cleanup
@@ -88,13 +104,13 @@ def test_load_db_file_not_found() -> None:
     
     retriever = Retriever(embedding_model='openai', db_path=Path(db_path))
     
-    try:
-        with pytest.raises(Exception):
-            retriever._load_db()
-    finally:
-        # Cleanup in case the file was created
-        if os.path.exists(db_path):
-            os.unlink(db_path)
+    # Should not raise an exception, but should return empty results
+    embeddings_data = retriever.vector_store.get_all_embeddings()
+    assert len(embeddings_data) == 0
+    
+    # Cleanup
+    if os.path.exists(db_path):
+        os.unlink(db_path)
 
 
 def test_load_db_empty_database() -> None:
@@ -110,12 +126,10 @@ def test_load_db_empty_database() -> None:
         
         retriever = Retriever(embedding_model='openai', db_path=Path(db_path))
         
-        with pytest.raises(Exception) as exc_info:
-            retriever._load_db()
-        
-        # Check that the error message contains the expected text
-        error_message = str(exc_info.value)
-        assert 'no such table: embeddings' in error_message or 'DatabaseError' in error_message
+        # The new implementation should handle empty databases gracefully
+        # by creating the table when needed
+        embeddings_data = retriever.vector_store.get_all_embeddings()
+        assert len(embeddings_data) == 0
         
     finally:
         # Cleanup
@@ -170,26 +184,30 @@ def test_retrieve_method_full_workflow() -> None:
     try:
         # Create test database with embeddings and chunks
         conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        cursor.execute('''
+            CREATE TABLE embeddings (
+                id TEXT PRIMARY KEY,
+                chunk TEXT,
+                embedding TEXT,
+                metadata TEXT,
+                source TEXT
+            )
+        ''')
         
         # Create test data with known embeddings for predictable similarity scores
-        test_data = pd.DataFrame({
-            'id': [1, 2, 3, 4, 5],
-            'chunk': [
-                'biomedical research on ultrasound therapy',
-                'clinical trials for drug discovery',
-                'neuroscience and brain imaging studies',
-                'cancer treatment protocols',
-                'medical device regulations'
-            ],
-            'embedding': [
-                '[0.9, 0.1, 0.2, 0.3, 0.4]',  # High similarity with query
-                '[0.1, 0.8, 0.2, 0.3, 0.4]',  # Lowest similarity
-                '[0.1, 0.2, 0.7, 0.3, 0.4]',  # Third highest similarity
-                '[0.1, 0.2, 0.3, 0.6, 0.4]',  # Second highest similarity
-                '[0.1, 0.2, 0.3, 0.4, 0.5]'   # Medium similarity
-            ]
-        })
-        test_data.to_sql('embeddings', conn, index=False)
+        test_data = [
+            ('hash1', 'biomedical research on ultrasound therapy', '[0.9, 0.1, 0.2, 0.3, 0.4]', '{"title": "Biomedical"}', 'bio.txt'),
+            ('hash2', 'clinical trials for drug discovery', '[0.1, 0.8, 0.2, 0.3, 0.4]', '{"title": "Clinical"}', 'clinical.txt'),
+            ('hash3', 'neuroscience and brain imaging studies', '[0.1, 0.2, 0.7, 0.3, 0.4]', '{"title": "Neuroscience"}', 'neuro.txt'),
+            ('hash4', 'cancer treatment protocols', '[0.1, 0.2, 0.3, 0.6, 0.4]', '{"title": "Cancer"}', 'cancer.txt'),
+            ('hash5', 'medical device regulations', '[0.1, 0.2, 0.3, 0.4, 0.5]', '{"title": "Medical"}', 'medical.txt')
+        ]
+        cursor.executemany(
+            'INSERT INTO embeddings (id, chunk, embedding, metadata, source) VALUES (?, ?, ?, ?, ?)',
+            test_data
+        )
+        conn.commit()
         conn.close()
         
         # Mock the embedding method to return a predictable query embedding
@@ -213,7 +231,6 @@ def test_retrieve_method_full_workflow() -> None:
                 'cancer treatment protocols',                 # Second highest
                 'neuroscience and brain imaging studies'      # Third highest
             ]
-            print(results)
             assert results == expected_order
             
     finally:
@@ -231,18 +248,30 @@ def test_retrieve_method_top_k_parameter() -> None:
     try:
         # Create test database
         conn = sqlite3.connect(db_path)
-        test_data = pd.DataFrame({
-            'id': [1, 2, 3, 4, 5],
-            'chunk': ['chunk1', 'chunk2', 'chunk3', 'chunk4', 'chunk5'],
-            'embedding': [
-                '[0.9, 0.1, 0.2]',
-                '[0.8, 0.2, 0.3]',
-                '[0.7, 0.3, 0.4]',
-                '[0.6, 0.4, 0.5]',
-                '[0.5, 0.5, 0.6]'
-            ]
-        })
-        test_data.to_sql('embeddings', conn, index=False)
+        cursor = conn.cursor()
+        cursor.execute('''
+            CREATE TABLE embeddings (
+                id TEXT PRIMARY KEY,
+                chunk TEXT,
+                embedding TEXT,
+                metadata TEXT,
+                source TEXT
+            )
+        ''')
+        
+        # Insert test data
+        test_data = [
+            ('hash1', 'chunk1', '[0.9, 0.1, 0.2]', '{"title": "Chunk 1"}', 'chunk1.txt'),
+            ('hash2', 'chunk2', '[0.8, 0.2, 0.3]', '{"title": "Chunk 2"}', 'chunk2.txt'),
+            ('hash3', 'chunk3', '[0.7, 0.3, 0.4]', '{"title": "Chunk 3"}', 'chunk3.txt'),
+            ('hash4', 'chunk4', '[0.6, 0.4, 0.5]', '{"title": "Chunk 4"}', 'chunk4.txt'),
+            ('hash5', 'chunk5', '[0.5, 0.5, 0.6]', '{"title": "Chunk 5"}', 'chunk5.txt')
+        ]
+        cursor.executemany(
+            'INSERT INTO embeddings (id, chunk, embedding, metadata, source) VALUES (?, ?, ?, ?, ?)',
+            test_data
+        )
+        conn.commit()
         conn.close()
         
         # Mock the embedding method
@@ -280,8 +309,9 @@ def test_retrieve_method_empty_database() -> None:
             
             retriever = Retriever(embedding_model='fastembed', db_path=Path(db_path))
             
-            with pytest.raises(Exception):
-                retriever.retrieve('test query')
+            # Should return empty list instead of raising exception
+            results = retriever.retrieve('test query')
+            assert len(results) == 0
                 
     finally:
         # Cleanup
@@ -348,30 +378,39 @@ def test_retriever_full_integration() -> None:
     try:
         # Create test database with real embeddings
         conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        cursor.execute('''
+            CREATE TABLE embeddings (
+                id TEXT PRIMARY KEY,
+                chunk TEXT,
+                embedding TEXT,
+                metadata TEXT,
+                source TEXT
+            )
+        ''')
         
         # Create test data with biomedical content
-        test_data = pd.DataFrame({
-            'id': [1, 2, 3, 4, 5],
-            'chunk': [
-                'Low-intensity focused ultrasound therapy for non-invasive brain stimulation',
-                'Clinical trials investigating drug efficacy in cancer treatment',
-                'Medical device regulations and safety standards',
-                'Neuroscience research on brain imaging techniques',
-                'Biomedical engineering applications in healthcare'
-            ]
-        })
+        chunks = [
+            'Low-intensity focused ultrasound therapy for non-invasive brain stimulation',
+            'Clinical trials investigating drug efficacy in cancer treatment',
+            'Medical device regulations and safety standards',
+            'Neuroscience research on brain imaging techniques',
+            'Biomedical engineering applications in healthcare'
+        ]
         
         # Generate real embeddings for the test chunks using FastEmbed
         model = TextEmbedding()
         
-        # Get embeddings for each chunk
-        embeddings = []
-        for chunk in test_data['chunk']:
+        # Insert test data
+        for i, chunk in enumerate(chunks):
             embedding = list(model.embed(chunk))[0]
-            embeddings.append(json.dumps(embedding.tolist()))
+            chunk_id = f'hash_{i}'
+            cursor.execute('''
+                INSERT INTO embeddings (id, chunk, embedding, metadata, source)
+                VALUES (?, ?, ?, ?, ?)
+            ''', (chunk_id, chunk, json.dumps(embedding.tolist()), '{"title": "Test"}', f'test_{i}.txt'))
         
-        test_data['embedding'] = embeddings
-        test_data.to_sql('embeddings', conn, index=False)
+        conn.commit()
         conn.close()
         
         # Create retriever and test actual retrieval
