@@ -1,3 +1,4 @@
+import argparse
 import os
 import json
 from typing import List, Optional
@@ -219,21 +220,121 @@ Answer:"""
 
 if __name__ == "__main__":
 
-    ### Test code
-    retriever = Retriever(
-        embedding_model = 'fastembed',
-        db_path = Path('assets/kb/embeddings/embeddings.db')
-        )
-
-    augmenter = Augmenter()
     
-    test_prompt = 'Can you tell me about LIFU? What does it stand for and how does it work?'
-
-    context = retriever.retrieve(test_prompt)
-
-    response = augmenter.generate_response(
-        test_prompt,
-        context
-        )
+    # Set up argument parser
+    parser = argparse.ArgumentParser(
+        description="LIFU-RAG Augmenter: Generate responses using retrieved context",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  python src/augmenter.py "What is LIFU?"
+  python src/augmenter.py "How does the system work?" --temperature 0.5 --max-tokens 300
+  python src/augmenter.py "Tell me about the architecture" --db-path assets/custom/embeddings.db
+        """
+    )
     
-    print(response)
+    # Required arguments
+    parser.add_argument(
+        "query",
+        type=str,
+        help="The query/question to answer"
+    )
+    
+    # Optional arguments with defaults
+    parser.add_argument(
+        "--embedding-model",
+        type=str,
+        default="fastembed",
+        help="Embedding model to use for retrieval (default: fastembed)"
+    )
+    
+    parser.add_argument(
+        "--db-path",
+        type=Path,
+        default=Path("assets/kb/embeddings/embeddings.db"),
+        help="Path to the embeddings database (default: assets/kb/embeddings/embeddings.db)"
+    )
+    
+    parser.add_argument(
+        "--temperature",
+        type=float,
+        default=0.25,
+        help="Temperature for response generation (0.0-1.0, default: 0.25)"
+    )
+    
+    parser.add_argument(
+        "--max-tokens",
+        type=int,
+        default=200,
+        help="Maximum number of tokens to generate (default: 200)"
+    )
+    
+    parser.add_argument(
+        "--model-name",
+        type=str,
+        default="google/gemma-2-2b-it",
+        help="LLM model name to use (default: google/gemma-2-2b-it)"
+    )
+    
+    parser.add_argument(
+        "--use-local",
+        action="store_true",
+        help="Use local model instead of Hugging Face API"
+    )
+    
+    parser.add_argument(
+        "--api-key",
+        type=str,
+        help="Hugging Face API key (defaults to HUGGINGFACE_API_KEY env var)"
+    )
+    
+    # Parse arguments
+    args = parser.parse_args()
+    
+    try:
+        # Initialize retriever
+        print(f"Initializing retriever with model: {args.embedding_model}")
+        retriever = Retriever(
+            embedding_model=args.embedding_model,
+            db_path=args.db_path
+        )
+        
+        # Initialize augmenter
+        print(f"Initializing augmenter with model: {args.model_name}")
+        augmenter = Augmenter(
+            model_name=args.model_name,
+            api_key=args.api_key,
+            use_local=args.use_local
+        )
+        
+        # Retrieve context
+        print(f"Retrieving context for query: {args.query}")
+        context = retriever.retrieve(args.query)
+        
+        if not context:
+            print("Warning: No relevant context found for the query.")
+        
+        # Generate response
+        print("Generating response...")
+        response = augmenter.generate_response(
+            args.query,
+            context,
+            temperature=args.temperature,
+            max_new_tokens=args.max_tokens
+        )
+        
+        # Print results
+        print("\n" + "="*50)
+        print("QUERY:")
+        print(args.query)
+        print("\n" + "="*50)
+        print("RESPONSE:")
+        print(response)
+        print("\n" + "="*50)
+        
+        if context:
+            print(f"Sources used: {len(context)} chunks")
+        
+    except Exception as e:
+        print(f"Error: {str(e)}")
+        exit(1)
