@@ -74,8 +74,17 @@ class SQLiteVectorStore(VectorStoreBackend):
     
     def get_all_embeddings(self) -> List[Dict[str, Any]]:
         """Get all embeddings from the SQLite database."""
+        if not Path(self.db_path).exists():
+            print(f'Warning: no such database found at {self.db_path}. Returning empty list...')
+            return []
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
+        try:
+            cursor.execute('SELECT chunk, embedding, metadata FROM embeddings')
+        except sqlite3.OperationalError:
+            print(f'Warning: no "embeddings" table in {self.db_path}. Returning empty list...')
+            conn.close()
+            return []
         cursor.execute('SELECT chunk, embedding, metadata FROM embeddings')
         results = cursor.fetchall()
         conn.close()

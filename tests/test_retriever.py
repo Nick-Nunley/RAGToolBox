@@ -8,8 +8,14 @@ from pathlib import Path
 from unittest.mock import Mock, patch, MagicMock
 from typing import Any
 import json
+from src.vector_store import SQLiteVectorStore
 
 from src.retriever import Retriever
+
+@pytest.fixture(autouse=True)
+def no_sqlite_init(monkeypatch):
+    # prevent it from creating any files on disk
+    monkeypatch.setattr(SQLiteVectorStore, "initialize", lambda self: None)
 
 
 # =====================
@@ -21,7 +27,7 @@ def test_retriever_init_valid_models(tmp_path: Path) -> None:
     # Test with openai
     retriever = Retriever(embedding_model='openai')
     assert retriever.embedding_model == 'openai'
-    assert retriever.db_path == Path('assets/kb/embeddings.db')
+    assert retriever.db_path == Path('assets/kb/embeddings/embeddings.db')
     
     # Test with fastembed
     retriever = Retriever(embedding_model='fastembed')

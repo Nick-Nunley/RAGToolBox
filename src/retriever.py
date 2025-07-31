@@ -17,7 +17,7 @@ class Retriever:
     def __init__(self, embedding_model: str, 
                  vector_store_backend: str = 'sqlite', 
                  vector_store_config: Optional[dict] = None,
-                 db_path: Path = Path('assets/kb/embeddings.db')):
+                 db_path: Path = Path('assets/kb/embeddings/embeddings.db')):
         supported_embedding_models = ['openai', 'fastembed']
         if embedding_model not in supported_embedding_models:
             raise ValueError(f"Unsupported embedding model: {embedding_model}. Embedding model must be one of: {supported_embedding_models}")
@@ -113,7 +113,7 @@ if __name__ == "__main__":
     parser.add_argument(
         '--db-path',
         '-d',
-        default = 'assets/kb/embeddings.db',
+        default = 'assets/kb/embeddings/embeddings.db',
         type = Path,
         help = 'Path to the database'
         )
