@@ -307,7 +307,8 @@ Examples:
         augmenter = Augmenter(
             model_name=args.model_name,
             api_key=args.api_key,
-            use_local=args.use_local
+            use_local=args.use_local,
+            prompt_type=args.prompt_type
         )
         
         # Retrieve context
