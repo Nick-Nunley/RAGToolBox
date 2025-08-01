@@ -39,7 +39,7 @@ jobs:
 
       # 5) Download punkt
       - name: Download punkt
-        run: bash src/Download_punkt.sh
+        run: bash RAGToolBox/Download_punkt.sh
 
       # 6) Run tests
       - name: Run pytest
