@@ -11,7 +11,8 @@ default: |
   Answer:
 
 concise: |
-  Provide a concise answer based solely on the context below.
+  Provide a concise one-liner answer based solely on the context below.
+  If the context isn't sufficient to succintly answer the question, say so.
 
   Context:
   {context}
@@ -21,8 +22,20 @@ concise: |
   Answer:
 
 verbose: |
-  You are an expert assistant. Give a detailed, step-by-step response using the context.
-  Cite and explain each point.
+  You are an expert assistant. Give as detailed as possible, a step-by-step response using the context.
+  Cite and explain each point. If the context isn't sufficient, say so.
+
+  Context:
+  {context}
+
+  Question: {query}
+
+  Answer:
+
+verbatim: |
+  You are an eager and helpful assistant. Please answer the question below based on the provided context.
+  Incorporate all applicable context verbatim to reduce the chances of altering the semantic meaning.
+  Use only the information provided in the context. If the context isn't sufficient, say so.
 
   Context:
   {context}
