@@ -3,7 +3,7 @@ import os
 import json
 from typing import List, Optional
 from pathlib import Path
-from src.retriever import Retriever
+from RAGToolBox.retriever import Retriever
 
 
 class Augmenter:

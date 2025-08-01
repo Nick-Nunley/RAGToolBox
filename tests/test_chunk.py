@@ -1,7 +1,7 @@
 import pytest
 from typing import List
 
-from src.chunk import (
+from RAGToolBox.chunk import (
     Chunker,
     ParagraphChunker,
     SentenceChunker,

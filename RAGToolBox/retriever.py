@@ -7,7 +7,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import sqlite3
-from src.vector_store import VectorStoreFactory, VectorStoreBackend
+from RAGToolBox.vector_store import VectorStoreFactory, VectorStoreBackend
 
 
 

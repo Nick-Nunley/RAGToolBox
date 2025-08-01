@@ -9,10 +9,10 @@ from unittest.mock import Mock, patch, MagicMock
 from typing import Any
 import json
 
-from src.vector_store import VectorStoreFactory, SQLiteVectorStore, ChromaVectorStore
-from src.index import Indexer
-from src.retriever import Retriever
-from src.chunk import HierarchicalChunker, SectionAwareChunker, SlidingWindowChunker
+from RAGToolBox.vector_store import VectorStoreFactory, SQLiteVectorStore, ChromaVectorStore
+from RAGToolBox.index import Indexer
+from RAGToolBox.retriever import Retriever
+from RAGToolBox.chunk import HierarchicalChunker, SectionAwareChunker, SlidingWindowChunker
 
 
 # =====================

@@ -5,7 +5,7 @@ import pdfplumber
 from Bio import Entrez
 from typing import Any
 
-from src.loader import (
+from RAGToolBox.loader import (
     BaseLoader,
     NCBILoader,
     TextLoader,

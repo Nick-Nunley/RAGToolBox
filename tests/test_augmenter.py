@@ -13,7 +13,7 @@ try:
 except ImportError:
     TRANSFORMERS_AVAILABLE = False
 
-from src.augmenter import Augmenter
+from RAGToolBox.augmenter import Augmenter
 
 
 # =====================

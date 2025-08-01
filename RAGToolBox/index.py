@@ -5,8 +5,8 @@ import re
 import time
 from typing import Optional, List, Tuple, Dict, Any
 from pathlib import Path
-from src.chunk import Chunker, HierarchicalChunker, SectionAwareChunker, SlidingWindowChunker
-from src.vector_store import VectorStoreFactory, VectorStoreBackend
+from RAGToolBox.chunk import Chunker, HierarchicalChunker, SectionAwareChunker, SlidingWindowChunker
+from RAGToolBox.vector_store import VectorStoreFactory, VectorStoreBackend
 
 
 class Indexer:

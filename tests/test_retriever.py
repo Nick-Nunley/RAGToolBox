@@ -8,9 +8,9 @@ from pathlib import Path
 from unittest.mock import Mock, patch, MagicMock
 from typing import Any
 import json
-from src.vector_store import SQLiteVectorStore
+from RAGToolBox.vector_store import SQLiteVectorStore
 
-from src.retriever import Retriever
+from RAGToolBox.retriever import Retriever
 
 @pytest.fixture(autouse=True)
 def no_sqlite_init(monkeypatch):
