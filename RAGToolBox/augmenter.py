@@ -1,6 +1,7 @@
 import argparse
 import os
-import json
+import yaml
+from importlib.resources import files
 from typing import List, Optional
 from pathlib import Path
 from RAGToolBox.retriever import Retriever
@@ -14,7 +15,7 @@ class Augmenter:
     with the user query to generate a coherent response using a language model.
     """
     
-    def __init__(self, model_name: str = "google/gemma-2-2b-it", api_key: Optional[str] = None, use_local: bool = False):
+    def __init__(self, model_name: str = "google/gemma-2-2b-it", api_key: Optional[str] = None, use_local: bool = False, prompt_type: str = 'default'):
         """
         Initialize the Augmenter.
         
@@ -26,6 +27,12 @@ class Augmenter:
         self.model_name = model_name
         self.api_key = api_key or os.getenv("HUGGINGFACE_API_KEY")
         self.use_local = use_local
+        with open(files('RAGToolBox').joinpath('config/prompts.yaml'), 'r', encoding='utf-8') as f:
+            prompts = yaml.safe_load(f)
+            if prompt_type not in prompts:
+                choices = ", ".join(prompts.keys())
+                raise ValueError(f"Invalid prompt_type '{prompt_type}'. Choose from: {choices}")
+            self.prompt_type = prompts[prompt_type]
         
         # Initialize model based on preference
         if use_local:
@@ -65,7 +72,7 @@ class Augmenter:
             raise ImportError("Transformers package is required. Install with: pip install transformers torch")
         except Exception as e:
             raise RuntimeError(f"Error loading model: {str(e)}")
-    
+
     def _format_prompt(self, query: str, retrieved_chunks: List[str]) -> str:
         """
         Format the query and retrieved chunks into a prompt for the LLM.
@@ -77,21 +84,8 @@ class Augmenter:
         Returns:
             Formatted prompt string
         """
-        # Create context from retrieved chunks
         context = "\n\n".join([f"Context {i+1}: {chunk}" for i, chunk in enumerate(retrieved_chunks)])
-        
-        # Format the prompt
-        prompt = f"""You are a helpful assistant that answers questions based on the provided context. 
-Please incorporate ALL applicable context into your response. Feel free to combine context if you need to. Use only the information from the context to answer the question. If the context doesn't contain 
-enough information to answer the question, say so.
-
-Context:
-{context}
-
-Question: {query}
-
-Answer:"""
-        
+        prompt = self.prompt_type.format(context = context, query = query)
         return prompt
     
     def _call_llm(self, prompt: str, temperature: float = 0.25, max_new_tokens: int = 200) -> str:
@@ -242,6 +236,14 @@ Examples:
     )
     
     # Optional arguments with defaults
+    parser.add_argument(
+        "-p",
+        "--prompt-type",
+        type=str,
+        default='default',
+        help='Type of prompt style to use for LLM'
+    )
+
     parser.add_argument(
         "--embedding-model",
         type=str,

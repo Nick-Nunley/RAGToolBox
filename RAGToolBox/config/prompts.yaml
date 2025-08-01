@@ -1,0 +1,32 @@
+default: |
+  You are a helpful assistant that answers questions based on the provided context.
+  Please incorporate ALL applicable context into your response. Use only the information
+  from the context to answer. If the context isn't sufficient, say so.
+
+  Context:
+  {context}
+
+  Question: {query}
+
+  Answer:
+
+concise: |
+  Provide a concise answer based solely on the context below.
+
+  Context:
+  {context}
+
+  Question: {query}
+
+  Answer:
+
+verbose: |
+  You are an expert assistant. Give a detailed, step-by-step response using the context.
+  Cite and explain each point.
+
+  Context:
+  {context}
+
+  Question: {query}
+
+  Answer:
