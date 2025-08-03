@@ -3,10 +3,10 @@ import os
 import subprocess
 import re
 import time
-from typing import Optional, List, Tuple, Dict, Any
+from typing import Optional, List, Tuple
 from pathlib import Path
 from RAGToolBox.chunk import Chunker, HierarchicalChunker, SectionAwareChunker, SlidingWindowChunker
-from RAGToolBox.vector_store import VectorStoreFactory, VectorStoreBackend
+from RAGToolBox.vector_store import VectorStoreFactory
 
 
 class Indexer:
@@ -87,7 +87,6 @@ class Indexer:
         if self.embedding_model == "openai":
             import openai
             client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-            # model = "text-embedding-ada-002"
             model = "text-embedding-3-small"
             for attempt in range(max_retries):
                 try:

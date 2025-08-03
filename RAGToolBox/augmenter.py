@@ -218,13 +218,13 @@ if __name__ == "__main__":
     
     # Set up argument parser
     parser = argparse.ArgumentParser(
-        description="LIFU-RAG Augmenter: Generate responses using retrieved context",
+        description="RAGToolBox Augmenter: Generate responses using retrieved context",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  python src/augmenter.py "What is LIFU?"
-  python src/augmenter.py "How does the system work?" --temperature 0.5 --max-tokens 300
-  python src/augmenter.py "Tell me about the architecture" --db-path assets/custom/embeddings.db
+  python -m RAGToolBox.augmenter "What is LIFU?"
+  python -m RAGToolBox.augmenter "How does LIFU work?" --temperature 0.5 --max-tokens 300
+  python -m RAGToolBox.augmenter "Tell me about the LIFU architecture" --db-path assets/custom/embeddings.db
         """
     )
     

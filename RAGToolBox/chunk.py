@@ -1,7 +1,7 @@
 import re
 import nltk
 from nltk.tokenize import sent_tokenize
-from typing import List, Protocol, Dict, Any, Tuple
+from typing import List, Protocol
 
 class Chunker(Protocol):
 

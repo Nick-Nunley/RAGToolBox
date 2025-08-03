@@ -1,13 +1,12 @@
 import argparse
 import os
 import time
-import json
-from typing import List, Optional, Dict, Any
+from typing import List, Optional
 from pathlib import Path
 import numpy as np
 import pandas as pd
 import sqlite3
-from RAGToolBox.vector_store import VectorStoreFactory, VectorStoreBackend
+from RAGToolBox.vector_store import VectorStoreFactory
 
 
 

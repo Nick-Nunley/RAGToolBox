@@ -1,9 +1,6 @@
 import pytest
 import os
-import json
 from unittest.mock import patch, MagicMock, Mock
-from typing import List, Optional
-from pathlib import Path
 
 # Check for optional dependencies
 try:

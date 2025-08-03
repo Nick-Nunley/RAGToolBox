@@ -2,11 +2,9 @@ import pytest
 import os
 import tempfile
 import sqlite3
-import pandas as pd
 import numpy as np
 from pathlib import Path
-from unittest.mock import Mock, patch, MagicMock
-from typing import Any
+from unittest.mock import Mock, patch
 import json
 from RAGToolBox.vector_store import SQLiteVectorStore
 

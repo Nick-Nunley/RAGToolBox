@@ -1,9 +1,7 @@
-import pytest
 import argparse
 import sqlite3
 from unittest.mock import patch, MagicMock
 from RAGToolBox.index import Indexer
-from RAGToolBox.chunk import Chunker
 
 class DummyChunker:
     def chunk(self, text: str):
