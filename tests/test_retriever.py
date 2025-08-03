@@ -234,9 +234,9 @@ def test_retrieve_method_full_workflow() -> None:
             assert len(results) == 3
 
             expected_order = [
-                'biomedical research on ultrasound therapy',  # Highest similarity
-                'cancer treatment protocols',                 # Second highest
-                'neuroscience and brain imaging studies'      # Third highest
+                {'data': 'biomedical research on ultrasound therapy', 'metadata': {'title': 'Biomedical'}},  # Highest similarity
+                {'data': 'cancer treatment protocols', 'metadata': {'title': 'Cancer'}},                     # Second highest
+                {'data': 'neuroscience and brain imaging studies', 'metadata': {'title': 'Neuroscience'}}    # Third highest
             ]
             assert results == expected_order
             
@@ -398,11 +398,11 @@ def test_retriever_full_integration() -> None:
         
         # Create test data with biomedical content
         chunks = [
-            'Low-intensity focused ultrasound therapy for non-invasive brain stimulation',
-            'Clinical trials investigating drug efficacy in cancer treatment',
-            'Medical device regulations and safety standards',
-            'Neuroscience research on brain imaging techniques',
-            'Biomedical engineering applications in healthcare'
+            {"data": 'Low-intensity focused ultrasound therapy for non-invasive brain stimulation', "metadata": {}},
+            {"data": 'Clinical trials investigating drug efficacy in cancer treatment', "metadata": {}},
+            {"data": 'Medical device regulations and safety standards', "metadata": {}},
+            {"data": 'Neuroscience research on brain imaging techniques', "metadata": {}},
+            {"data": 'Biomedical engineering applications in healthcare', "metadata": {}}
         ]
         
         # Generate real embeddings for the test chunks using FastEmbed
@@ -410,12 +410,12 @@ def test_retriever_full_integration() -> None:
         
         # Insert test data
         for i, chunk in enumerate(chunks):
-            embedding = list(model.embed(chunk))[0]
+            embedding = list(model.embed(chunk['data']))[0]
             chunk_id = f'hash_{i}'
             cursor.execute('''
                 INSERT INTO embeddings (id, chunk, embedding, metadata, source)
                 VALUES (?, ?, ?, ?, ?)
-            ''', (chunk_id, chunk, json.dumps(embedding.tolist()), '{"title": "Test"}', f'test_{i}.txt'))
+            ''', (chunk_id, chunk['data'], json.dumps(embedding.tolist()), '{"title": "Test"}', f'test_{i}.txt'))
         
         conn.commit()
         conn.close()
@@ -430,10 +430,10 @@ def test_retriever_full_integration() -> None:
         # Verify we got results
         assert len(results) == 3
         assert isinstance(results, list)
-        assert all(isinstance(result, str) for result in results)
+        assert all(isinstance(result, dict) for result in results)
         
         # Verify the first result is most relevant (should be about ultrasound)
-        assert 'ultrasound' in results[0].lower()
+        assert 'ultrasound' in results[0]['data'].lower()
         
         # Test with a different query
         query2 = "medical device safety"
@@ -441,7 +441,7 @@ def test_retriever_full_integration() -> None:
         
         assert len(results2) == 2
         # Should include the medical device regulation chunk
-        assert any('regulation' in result.lower() for result in results2)
+        assert any('regulation' in result['data'].lower() for result in results2)
         
         # Test with top_k larger than available data
         results3 = retriever.retrieve("biomedical research", top_k=10)

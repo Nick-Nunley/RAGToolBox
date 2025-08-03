@@ -176,7 +176,7 @@ def test_format_prompt():
     """Test prompt formatting with retrieved chunks."""
     augmenter = Augmenter()
     query = "What is LIFU?"
-    chunks = ["LIFU is a therapeutic technique.", "It uses focused ultrasound."]
+    chunks = [{"data": "LIFU is a therapeutic technique.", "metadata": {}}, {"data": "It uses focused ultrasound.", "metadata": {}}]
     
     prompt = augmenter._format_prompt(query, chunks)
     
@@ -380,7 +380,7 @@ def test_generate_response_with_chunks():
         
         augmenter = Augmenter()
         query = "What is LIFU?"
-        chunks = ["LIFU is a therapeutic technique."]
+        chunks = [{"data": "LIFU is a therapeutic technique.", "metadata": {}}]
         
         result = augmenter.generate_response(query, chunks)
         
@@ -407,13 +407,13 @@ def test_generate_response_with_sources():
         
         augmenter = Augmenter()
         query = "What is LIFU?"
-        chunks = ["Chunk 1", "Chunk 2"]
+        chunks = [{"data": "Chunk 1", "metadata": {}}, {"data": "Chunk 2", "metadata": {}}]
         
         result = augmenter.generate_response_with_sources(query, chunks)
         
         expected = {
             "response": "Generated answer",
-            "sources": ["Chunk 1", "Chunk 2"],
+            "sources": [{"data": "Chunk 1", "metadata": {}}, {"data": "Chunk 2", "metadata": {}}],
             "num_sources": 2,
             "query": "What is LIFU?",
             "temperature": 0.25,
@@ -445,8 +445,8 @@ def test_full_augmenter_workflow_api():
         
         query = "What is LIFU?"
         chunks = [
-            "LIFU stands for Low-Intensity Focused Ultrasound.",
-            "It is a therapeutic technique used in medical applications."
+            {"data": "LIFU stands for Low-Intensity Focused Ultrasound.", "metadata": {}},
+            {"data": "It is a therapeutic technique used in medical applications.", "metadata": {}}
         ]
         
         result = augmenter.generate_response(query, chunks)
@@ -484,7 +484,7 @@ def test_full_augmenter_workflow_local():
         augmenter.model = mock_model
         
         query = "What is LIFU?"
-        chunks = ["LIFU is a therapeutic technique."]
+        chunks = [{"data": "LIFU is a therapeutic technique.", "metadata": {}}]
         
         result = augmenter.generate_response(query, chunks)
         
@@ -512,9 +512,9 @@ def test_augmenter_with_retriever_integration():
         # Simulate retrieved chunks from retriever
         query = "Is LIPUS the same thing as LIFU?"
         retrieved_chunks = [
-            "LIFU (Low-Intensity Focused Ultrasound) uses focused ultrasound waves.",
-            "LIPUS (Low-Intensity Pulsed Ultrasound) uses pulsed ultrasound waves.",
-            "Both techniques are used for therapeutic purposes but have different mechanisms."
+            {"data": "LIFU (Low-Intensity Focused Ultrasound) uses focused ultrasound waves.", "metadata": {}},
+            {"data": "LIPUS (Low-Intensity Pulsed Ultrasound) uses pulsed ultrasound waves.", "metadata": {}},
+            {"data": "Both techniques are used for therapeutic purposes but have different mechanisms.", "metadata": {}}
         ]
         
         result = augmenter.generate_response_with_sources(query, retrieved_chunks)
@@ -538,7 +538,7 @@ def test_augmenter_error_handling():
         augmenter.client = mock_client
         
         query = "What is LIFU?"
-        chunks = ["LIFU is a therapeutic technique."]
+        chunks = [{"data": "LIFU is a therapeutic technique.", "metadata": {}}]
         
         with pytest.raises(RuntimeError, match="Error calling Hugging Face API"):
             augmenter.generate_response(query, chunks)
@@ -578,7 +578,7 @@ def test_augmenter_custom_parameters():
         augmenter.client = mock_client
         
         query = "Test query"
-        chunks = ["Test chunk"]
+        chunks = [{"data": "Test chunk", "metadata": {}}]
         
         result = augmenter.generate_response(query, chunks)
         

@@ -84,7 +84,7 @@ class Augmenter:
         Returns:
             Formatted prompt string
         """
-        context = "\n\n".join([f"Context {i+1}: {chunk}" for i, chunk in enumerate(retrieved_chunks)])
+        context = "\n\n".join([f"Context {i+1}: {chunk['data']}" for i, chunk in enumerate(retrieved_chunks)])
         prompt = self.prompt_type.format(context = context, query = query)
         return prompt
     
@@ -290,6 +290,13 @@ Examples:
         type=str,
         help="Hugging Face API key (defaults to HUGGINGFACE_API_KEY env var)"
     )
+
+    parser.add_argument(
+        '-s',
+        '--sources',
+        action='store_true',
+        help='Include sources to the response'
+    )
     
     # Parse arguments
     args = parser.parse_args()
@@ -320,12 +327,20 @@ Examples:
         
         # Generate response
         print("Generating response...")
-        response = augmenter.generate_response(
-            args.query,
-            context,
-            temperature=args.temperature,
-            max_new_tokens=args.max_tokens
-        )
+        if args.sources:
+            response = augmenter.generate_response_with_sources(
+                args.query,
+                context,
+                temperature=args.temperature,
+                max_new_tokens=args.max_tokens
+                )
+        else:
+            response = augmenter.generate_response(
+                args.query,
+                context,
+                temperature=args.temperature,
+                max_new_tokens=args.max_tokens
+                )
         
         # Print results
         print("\n" + "="*50)

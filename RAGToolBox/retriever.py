@@ -83,11 +83,11 @@ class Retriever:
         for item in embeddings_data:
             embedding = np.array(item['embedding'])
             similarity = np.dot(embedding, query_embedding)
-            similarities.append((similarity, item['chunk']))
-        
+            similarities.append((similarity, item['chunk'], item['metadata']))
+
         # Sort by similarity and return top_k chunks
         similarities.sort(key=lambda x: x[0], reverse=True)
-        return [chunk for similarity, chunk in similarities[:top_k]]
+        return [{'data': chunk, 'metadata': metadata} for _, chunk, metadata in similarities[:top_k]]
 
 
 if __name__ == "__main__":

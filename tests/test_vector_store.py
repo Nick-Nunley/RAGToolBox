@@ -641,8 +641,8 @@ def test_retriever_integration_with_sqlite() -> None:
             results = retriever.retrieve("ultrasound therapy", top_k=2)
             
             assert len(results) == 2
-            assert 'ultrasound' in results[0].lower()
-            assert isinstance(results[0], str)  # Should return strings, not dicts
+            assert 'ultrasound' in results[0]['data'].lower()
+            assert isinstance(results[0], dict)
 
 
 def test_retriever_integration_with_chroma() -> None:
@@ -689,5 +689,5 @@ def test_retriever_integration_with_chroma() -> None:
             results = retriever.retrieve("brain imaging research", top_k=2)
             
             assert len(results) == 2
-            assert 'brain' in results[0].lower()
-            assert isinstance(results[0], str)  # Should return strings, not dicts
+            assert 'brain' in results[0]['data'].lower()
+            assert isinstance(results[0], dict)
