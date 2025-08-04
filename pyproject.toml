@@ -1,5 +1,5 @@
 [tool.poetry]
-name = "lifu-rag"
+name = "RAGToolBox"
 version = "0.1.0"
 description = ""
 authors = ["Nick-Nunley <nicknunley17@ucla.edu>"]
