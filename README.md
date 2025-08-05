@@ -1,12 +1,15 @@
 # RAGToolBox
 
+[![Build Status](https://img.shields.io/github/actions/workflow/status/Nick-Nunley/RAGToolBox/ci.yml)](https://github.com/Nick-Nunley/RAGToolBox/actions)
+[![codecov](https://codecov.io/gh/Nick-Nunley/RAGToolBox/branch/main/graph/badge.svg)](https://codecov.io/gh/Nick-Nunley/RAGToolBox)
+
 **RAGToolBox** is a modular, extensible Python package for building Retrieval-Augmented Generation (RAG) pipelines. It provides end-to-end components for:
 
 * **Loading** content (local files, web pages, PubMed/PMC articles)
 * **Chunking** text (paragraphs, sentences, sliding windows, section‑aware, hierarchical)
 * **Storing** embeddings (SQLite and ChromaVectorStore backends)
 * **Indexing** content with parallel embedding and metadata parsing
-* **Retrieval** via OpenAI or FastEmbed embeddings and similarity search
+* **Retrieval** *via* OpenAI or FastEmbed embeddings and similarity search
 * **Augmentation** using customizable prompts and LLMs (local or Hugging Face)
 
 ---
@@ -63,8 +66,8 @@ pip install .
     * huggingface_hub>=0.33.5
     * chromadb>=1.0.15
 * Optional dependencies (for local model inference):
-    * torch
-    * transformers
+    * torch>=2.7.1
+    * transformers>=4.30.0
 
 ---
 
@@ -175,7 +178,7 @@ python -m RAGToolBox.augmenter "What is RAG?" --prompt-type concise
 Run the full test suite:
 
 ```bash
-pytest tests
+bash tests/Run_tests.sh
 ```
 
 Continuous integration is configured via GitHub Actions (see `.github/workflows/ci.yml`).
