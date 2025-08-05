@@ -44,3 +44,8 @@ jobs:
       # 6) Run tests
       - name: Run pytest
         run: bash tests/Run_tests.sh
+
+      # 7) Measure coverage
+      - name: Measure test coverage
+        run: |
+          python utils/check_coverage.py

@@ -32,7 +32,22 @@ transformers = { version = "^4.30.0", optional = true }
 pytest-cov = "^6.2.1"
 
 [tool.pytest.ini_options]
-addopts = "--cov=RAGToolBox --cov-report=term-missing --cov-report=html --cov-report=json:coverage.json"
+addopts = [
+  "--cov=RAGToolBox",
+  "--cov-report=term-missing",
+  "--cov-report=html",
+]
+
+[tool.coverage.run]
+branch = true
+source = ["RAGToolBox"]
+
+[tool.coverage.report]
+exclude_lines = [
+  "if __name__ == .__main__.:",
+  "pragma: no cover",
+]
+omit = ["tests/*"]
 
 [build-system]
 requires = ["poetry-core"]
