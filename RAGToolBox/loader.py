@@ -560,7 +560,8 @@ class UnknownLoader(BaseLoader):
         self.text = ''
 
 
-def main() -> None:
+if __name__ == '__main__':
+
     parser = argparse.ArgumentParser(
         description="Fetch multiple URLs or local files and convert content to plain text for chunking"
     )
@@ -608,7 +609,3 @@ def main() -> None:
         loader = LoaderClass(source, args.output_dir)
         loader.raw_content = raw
         loader.process()
-
-if __name__ == '__main__':
-
-    main()
