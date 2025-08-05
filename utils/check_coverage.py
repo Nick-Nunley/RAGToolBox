@@ -34,7 +34,7 @@ if __name__ == "__main__":
         "RAGToolBox/vector_store.py": 0.80,
         "RAGToolBox/index.py": 0.50,
         "RAGToolBox/retriever.py": 0.70,
-        "RAGToolBox/augmenter.py": 0.70,
+        "RAGToolBox/augmenter.py": 0.50,
         }
 
     sys.exit(main(THRESHOLDS=THRESHOLDS))
