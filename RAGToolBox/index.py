@@ -12,8 +12,8 @@ from RAGToolBox.vector_store import VectorStoreFactory
 class Indexer:
     """Indexer class for loading (optional), chunking, and embedding content."""
 
-    def __init__(self, chunker: Chunker, embedding_model: str, 
-                 vector_store_backend: str = 'sqlite', 
+    def __init__(self, chunker: Chunker, embedding_model: str,
+                 vector_store_backend: str = 'sqlite',
                  vector_store_config: Optional[dict] = None,
                  output_dir: Path = Path('assets/kb/embeddings/')):
         self.chunker = chunker
@@ -22,16 +22,16 @@ class Indexer:
             raise ValueError(f"Unsupported embedding model: {embedding_model}. Embedding model must be one of: {supported_embedding_models}")
         self.embedding_model = embedding_model
         self.output_dir = output_dir
-        
+
         # Initialize vector store backend
         self.vector_store_config = vector_store_config or {}
         if vector_store_backend == 'sqlite':
             # For SQLite, use the output_dir to determine db_path
             db_path = self.output_dir / 'embeddings.db'
             self.vector_store_config['db_path'] = db_path
-        
+
         self.vector_store = VectorStoreFactory.create_backend(
-            vector_store_backend, 
+            vector_store_backend,
             **self.vector_store_config
         )
         self.vector_store.initialize()
@@ -254,7 +254,7 @@ if __name__ == "__main__":
         if args.chroma_persist_dir:
             vector_store_config['persist_directory'] = args.chroma_persist_dir
         vector_store_config['collection_name'] = args.collection_name
-    
+
     indexer = Indexer(
         chunker = HierarchicalChunker([SectionAwareChunker(), SlidingWindowChunker()]),
         embedding_model = args.embedding_model,
@@ -262,5 +262,5 @@ if __name__ == "__main__":
         vector_store_config = vector_store_config,
         output_dir = Path(Path(args.kb_dir) / 'embeddings')
         )
-    
+
     indexer.main(args)

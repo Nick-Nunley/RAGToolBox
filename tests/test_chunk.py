@@ -25,7 +25,7 @@ Second paragraph.
 
 Third paragraph."""
 
-SAMPLE_TEXT_MIXED_WHITESPACE = """   First paragraph with leading spaces.  
+SAMPLE_TEXT_MIXED_WHITESPACE = """   First paragraph with leading spaces.
 
 
 Second paragraph with extra newlines.
@@ -73,7 +73,7 @@ SAMPLE_MARKDOWN_LARGE_SECTION = """# Large Document
 
 ## Introduction
 
-This is a very long section that will need to be split into multiple chunks. Lorem ipsum dolor sit amet. " * 50 + 
+This is a very long section that will need to be split into multiple chunks. Lorem ipsum dolor sit amet. " * 50 +
 
 ## Conclusion
 
@@ -167,10 +167,10 @@ def test_section_aware_chunker_parameter_validation() -> None:
     # Test invalid parameters
     with pytest.raises(ValueError):
         SectionAwareChunker(max_chunk_size=0)
-    
+
     with pytest.raises(ValueError):
         SectionAwareChunker(max_chunk_size=100, overlap=-1)
-    
+
     with pytest.raises(ValueError):
         SectionAwareChunker(max_chunk_size=10, overlap=100)
 
@@ -483,7 +483,7 @@ def test_section_aware_chunker_with_ncbi_loader_output() -> None:
 Abstracts The ability of ultrasound to be focused into a small region of interest through the intact skull within the brain has led researchers to investigate its potential therapeutic uses for functional neurosurgery and tumor ablation. Studies have used high-intensity focused ultrasound to ablate tissue in localised brain regions for movement disorders and chronic pain while sparing the overlying and surrounding tissue. More recently, low-intensity focused ultrasound (LIFU) that induces reversible biological effects has been emerged as an alternative neuromodulation modality due to its bi-modal ( i.e. excitation and suppression) capability with exquisite spatial specificity and depth penetration. Many compelling evidences of LIFU-mediated neuromodulatory effects including behavioral responses, electrophysiological recordings and functional imaging data have been found in the last decades. LIFU, therefore, has the enormous potential to improve the clinical outcomes as well as to replace the currently available neuromodulation techniques such as deep brain stimulation (DBS), transcranial magnetic stimulation and transcranial current stimulation. In this paper, we aim to provide a summary of pioneering studies in the field of ultrasonic neuromodulation including its underlying mechanisms that were published in the last 60 years. In closing, some of potential clinical applications of ultrasonic brain stimulation will be discussed."""
     chunker = SectionAwareChunker(max_chunk_size=400, overlap=100)
     chunks = chunker.chunk(ncbi_output)
-    
+
     assert len(chunks) >= 2
     # Check that metadata and content are preserved
     assert any("# A review of low-intensity focused ultrasound" in chunk for chunk in chunks)
@@ -494,14 +494,14 @@ Abstracts The ability of ultrasound to be focused into a small region of interes
 def test_chunker_performance_with_large_text() -> None:
     # Test performance with larger text
     large_text = "# Large Document\n\n" + "This is a sentence. " * 10
-    
+
     chunkers = [
         ParagraphChunker(),
         SentenceChunker(),
         SlidingWindowChunker(window_size=1000, overlap=200),
         SectionAwareChunker(max_chunk_size=100, overlap=50)
     ]
-    
+
     for chunker in chunkers:
         chunks = chunker.chunk(large_text)
         assert isinstance(chunks, list)
@@ -518,14 +518,14 @@ def test_chunker_edge_cases() -> None:
         "# H12\n### H3\nContent",  # Nested headers
         "Header\n\n\nContent",  # Multiple newlines
     ]
-    
+
     chunkers = [
         ParagraphChunker(),
         SentenceChunker(),
         SlidingWindowChunker(),
         SectionAwareChunker(),
     ]
-    
+
     for chunker in chunkers:
         for text in edge_cases:
             chunks = chunker.chunk(text)
@@ -537,14 +537,14 @@ def test_chunker_edge_cases() -> None:
 def test_chunker_consistency() -> None:
     # Test that chunkers produce consistent results
     text = SAMPLE_MARKDOWN_TEXT
-    
+
     chunkers = [
         ParagraphChunker(),
         SentenceChunker(),
         SlidingWindowChunker(window_size=500),
         SectionAwareChunker(max_chunk_size=50, overlap=25)
     ]
-    
+
     for chunker in chunkers:
         # Run multiple times to ensure consistency
         chunks1 = chunker.chunk(text)

@@ -87,7 +87,7 @@ class BaseLoader:
     def save(self) -> None:
         """Save the converted text to a .txt file in the output directory."""
         os.makedirs(self.output_dir, exist_ok=True)
-        
+
         if self.is_local_file:
             # For local files, use the original filename without extension
             name = os.path.splitext(os.path.basename(self.source))[0]
@@ -95,7 +95,7 @@ class BaseLoader:
             # For URLs, use the existing logic
             parsed = urlparse(self.source)
             name = os.path.splitext(os.path.basename(parsed.path) or 'document')[0]
-        
+
         filename = f"{name}.txt"
         out_path = os.path.join(self.output_dir, filename)
         with open(out_path, 'w', encoding='utf-8') as f:
@@ -515,7 +515,7 @@ class HTMLLoader(BaseLoader):
         if self.raw_content is None:
             title = ""
         else:
-            title = self._extract_title(self.raw_content)  # type: ignore  
+            title = self._extract_title(self.raw_content)  # type: ignore
         if title:
             name = self._slugify(title)
         else:

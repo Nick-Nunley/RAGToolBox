@@ -13,8 +13,8 @@ from RAGToolBox.vector_store import VectorStoreFactory
 class Retriever:
     """Retriever class for retrieving relevant chunks from the knowledge base"""
 
-    def __init__(self, embedding_model: str, 
-                 vector_store_backend: str = 'sqlite', 
+    def __init__(self, embedding_model: str,
+                 vector_store_backend: str = 'sqlite',
                  vector_store_config: Optional[dict] = None,
                  db_path: Path = Path('assets/kb/embeddings/embeddings.db')):
         supported_embedding_models = ['openai', 'fastembed']
@@ -22,15 +22,15 @@ class Retriever:
             raise ValueError(f"Unsupported embedding model: {embedding_model}. Embedding model must be one of: {supported_embedding_models}")
         self.embedding_model = embedding_model
         self.db_path = db_path
-        
+
         # Initialize vector store backend
         self.vector_store_config = vector_store_config or {}
         if vector_store_backend == 'sqlite':
             # For SQLite, use the db_path to determine vector store path
             self.vector_store_config['db_path'] = self.db_path
-        
+
         self.vector_store = VectorStoreFactory.create_backend(
-            vector_store_backend, 
+            vector_store_backend,
             **self.vector_store_config
         )
         self.vector_store.initialize()
@@ -70,13 +70,13 @@ class Retriever:
     def retrieve(self, query: str, top_k: int = 10, max_retries: int = 5) -> List[str]:
         """Method to retrieve the top k results from the knowledge base"""
         query_embedding = self._embed_query(query=query, max_retries=max_retries)
-        
+
         # Get all embeddings from vector store
         embeddings_data = self.vector_store.get_all_embeddings()
-        
+
         if not embeddings_data:
             return []
-        
+
         # Calculate similarities
         similarities = []
         for item in embeddings_data:
@@ -100,7 +100,7 @@ if __name__ == "__main__":
         type = str,
         help = 'User query to use for retrieval from knowledge base'
         )
-    
+
     parser.add_argument(
         '--embedding-model',
         '-e',
@@ -108,7 +108,7 @@ if __name__ == "__main__":
         type = str,
         help = 'Embedding model to use'
         )
-    
+
     parser.add_argument(
         '--db-path',
         '-d',

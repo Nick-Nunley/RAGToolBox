@@ -75,12 +75,12 @@ def test_detect_loader_ncbi() -> None:
 def test_detect_loader_local_txt() -> None:
     # Mock file existence check
     original_exists = os.path.exists
-    
+
     def mock_exists(path: str) -> bool:
         if path == '/path/to/file.txt':
             return True
         return original_exists(path)
-    
+
     # Temporarily replace os.path.exists
     os.path.exists = mock_exists
     try:
@@ -92,12 +92,12 @@ def test_detect_loader_local_txt() -> None:
 def test_detect_loader_local_pdf() -> None:
     # Mock file existence check
     original_exists = os.path.exists
-    
+
     def mock_exists(path: str) -> bool:
         if path == '/path/to/document.pdf':
             return True
         return original_exists(path)
-    
+
     # Temporarily replace os.path.exists
     os.path.exists = mock_exists
     try:
@@ -109,12 +109,12 @@ def test_detect_loader_local_pdf() -> None:
 def test_detect_loader_local_html() -> None:
     # Mock file existence check
     original_exists = os.path.exists
-    
+
     def mock_exists(path: str) -> bool:
         if path == '/path/to/page.html':
             return True
         return original_exists(path)
-    
+
     # Temporarily replace os.path.exists
     os.path.exists = mock_exists
     try:
@@ -341,15 +341,15 @@ def test_full_process_local_file(tmp_path: Any) -> None:
     test_content = 'This is a test document with some content.'
     with open(test_file, 'w') as f:
         f.write(test_content)
-    
+
     # Process the local file
     loader = TextLoader(str(test_file), str(tmp_path / 'output'))
     loader.process()
-    
+
     # Check that output file was created
     output_file = tmp_path / 'output' / 'test_document.txt'
     assert output_file.exists()
-    
+
     # Check content
     with open(output_file) as f:
         content = f.read()
@@ -360,20 +360,20 @@ def test_full_process_local_pdf(monkeypatch: Any, tmp_path: Any) -> None:
     def mock_pdf_open(file_obj: Any) -> DummyPDF:
         return DummyPDF([DummyPage("Page 1 content"), DummyPage("Page 2 content")])
     monkeypatch.setattr(pdfplumber, 'open', mock_pdf_open)
-    
+
     # Create a temporary PDF file (content doesn't matter since we mock pdfplumber)
     test_file = tmp_path / 'test_document.pdf'
     with open(test_file, 'wb') as f:
         f.write(b'%PDF-1.4 fake pdf content')
-    
+
     # Process the local file
     loader = PDFLoader(str(test_file), str(tmp_path / 'output'))
     loader.process()
-    
+
     # Check that output file was created
     output_file = tmp_path / 'output' / 'test_document.txt'
     assert output_file.exists()
-    
+
     # Check content
     with open(output_file) as f:
         content = f.read()
