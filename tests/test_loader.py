@@ -1,3 +1,5 @@
+"""Tests associated with Loader module"""
+
 import os
 import pytest
 import requests

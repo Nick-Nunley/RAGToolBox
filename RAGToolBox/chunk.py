@@ -1,3 +1,10 @@
+"""
+RAGToolBox Chunk module.
+
+Provides the Chunker classes for breaking down strings into different types of chunks,
+which can then be passed through an embedding process.
+"""
+
 import re
 import nltk
 from nltk.tokenize import sent_tokenize

@@ -1,3 +1,12 @@
+"""
+RAGToolBox Retriever module.
+
+Provides the Retriever class for performing similarity search against
+a user query for obtaining semantically similar context.
+
+Additionally, this script provides a CLI entry point for execution as a standalone python module.
+"""
+
 import argparse
 import os
 import time

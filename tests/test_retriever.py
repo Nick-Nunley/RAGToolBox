@@ -1,3 +1,5 @@
+"""Tests associated with Retriever module"""
+
 import pytest
 import os
 import tempfile

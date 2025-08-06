@@ -1,3 +1,5 @@
+"""Tests associated with Index module"""
+
 import argparse
 import sqlite3
 from unittest.mock import patch, MagicMock

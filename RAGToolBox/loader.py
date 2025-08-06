@@ -1,3 +1,12 @@
+"""
+RAGToolBox Loader module.
+
+Provides the Loader classes for ingesting/loading documents from various sources
+(e.g. PubMed, PMC, HTML, PDF) documents as raw TXT files for string indexing.
+
+Additionally, this script provides a CLI entry point for execution as a standalone python module.
+"""
+
 import argparse
 import os
 import io

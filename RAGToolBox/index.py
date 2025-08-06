@@ -1,3 +1,11 @@
+"""
+RAGToolBox Index module.
+
+Provides the Indexer class for embedding and storing (indexing) chunked strings.
+
+Additionally, this script provides a CLI entry point for execution as a standalone python module.
+"""
+
 import argparse
 import os
 import subprocess

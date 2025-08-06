@@ -1,9 +1,19 @@
+"""
+RAGToolBox Augmenter module.
+
+Provides the Augmenter class for generating responses using retrieved
+chunks from the KB and a language model (local or via Hugging Face API).
+
+Additionally, this script provides a CLI entry point for execution as a standalone python module.
+"""
+
 import argparse
 import os
-import yaml
+import sys
 from importlib.resources import files
 from typing import List, Optional
 from pathlib import Path
+import yaml
 from RAGToolBox.retriever import Retriever
 
 
@@ -56,7 +66,6 @@ class Augmenter:
         """Initialize the local model using transformers library."""
         try:
             from transformers import AutoTokenizer, AutoModelForCausalLM
-            import torch
 
             print(f"Loading model: {self.model_name}")
             self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
@@ -84,8 +93,8 @@ class Augmenter:
         Returns:
             Formatted prompt string
         """
-        context = "\n\n".join([f"Context {i+1}: {chunk['data']}" for i, chunk in enumerate(retrieved_chunks)])
-        prompt = self.prompt_type.format(context = context, query = query)
+        contx = "\n\n".join([f"Context {i+1}: {chunk['data']}" for i, chunk in enumerate(retrieved_chunks)])
+        prompt = self.prompt_type.format(context = contx, query = query)
         return prompt
 
     def _call_llm(self, prompt: str, temperature: float = 0.25, max_new_tokens: int = 200) -> str:
@@ -102,8 +111,7 @@ class Augmenter:
         """
         if self.use_local:
             return self._call_local_model(prompt, temperature, max_new_tokens)
-        else:
-            return self._call_huggingface_api(prompt, temperature, max_new_tokens)
+        return self._call_huggingface_api(prompt, temperature, max_new_tokens)
 
     def _call_local_model(self, prompt: str, temperature: float = 0.7, max_new_tokens: int = 200) -> str:
         """Call the local model using transformers."""
@@ -124,13 +132,15 @@ class Augmenter:
                 )
 
             # Decode the response
-            response = self.tokenizer.decode(outputs[0], skip_special_tokens=True)
+            resp = self.tokenizer.decode(outputs[0], skip_special_tokens=True)
 
             # Extract only the generated part (remove the input prompt)
-            generated_text = response[len(prompt):].strip()
+            generated_text = resp[len(prompt):].strip()
 
             return generated_text if generated_text else "I don't have enough information to provide a detailed answer."
 
+        except ImportError:
+            raise ImportError("Torch package is required. Install with: pip install torch")
         except Exception as e:
             raise RuntimeError(f"Error calling local model: {str(e)}")
 
@@ -160,10 +170,9 @@ class Augmenter:
             if "404" in error_str or "not found" in error_str or "stopiteration" in error_str:
                 raise RuntimeError(f"Model '{self.model_name}' is not available on Hugging Face's inference API. "
                                  f"Try using a different model like 'deepseek-ai/DeepSeek-V3-0324', 'meta-llama/Llama-2-7b-chat-hf', or set use_local=True to use local models.")
-            elif "authentication" in error_str or "token" in error_str:
+            if "authentication" in error_str or "token" in error_str:
                 raise RuntimeError(f"Authentication error: {str(e)}. Please check your HUGGINGFACE_API_KEY environment variable.")
-            else:
-                raise RuntimeError(f"Error calling Hugging Face API: {str(e)}")
+            raise RuntimeError(f"Error calling Hugging Face API: {str(e)}")
 
     def generate_response(self, query: str, retrieved_chunks: List[str], temperature: float = 0.25, max_new_tokens: int = 200) -> str:
         """
@@ -185,9 +194,9 @@ class Augmenter:
         prompt = self._format_prompt(query, retrieved_chunks)
 
         # Call the LLM
-        response = self._call_llm(prompt, temperature, max_new_tokens)
+        resp = self._call_llm(prompt, temperature, max_new_tokens)
 
-        return response
+        return resp
 
     def generate_response_with_sources(self, query: str, retrieved_chunks: List[str], temperature: float = 0.25, max_new_tokens: int = 200) -> dict:
         """
@@ -202,10 +211,10 @@ class Augmenter:
         Returns:
             Dictionary containing response and source information
         """
-        response = self.generate_response(query, retrieved_chunks, temperature, max_new_tokens)
+        resp = self.generate_response(query, retrieved_chunks, temperature, max_new_tokens)
 
         return {
-            "response": response,
+            "response": resp,
             "sources": retrieved_chunks,
             "num_sources": len(retrieved_chunks),
             "query": query,
@@ -356,4 +365,4 @@ Examples:
 
     except Exception as e:
         print(f"Error: {str(e)}")
-        exit(1)
+        sys.exit(1)

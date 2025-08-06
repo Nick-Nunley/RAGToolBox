@@ -1,3 +1,10 @@
+"""
+RAGToolBox Vector_store module.
+
+Provides the VectorStore classes for handling and interfacing with various
+vector storage formats (e.g. SQLite and Chromadb).
+"""
+
 import json
 import hashlib
 import sqlite3
