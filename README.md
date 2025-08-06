@@ -1,5 +1,6 @@
 # RAGToolBox
 
+[![CI](https://github.com/Nick-Nunley/RAGToolBox/actions/workflows/CI.yml/badge.svg)](https://github.com/Nick-Nunley/RAGToolBox/actions/workflows/CI.yml)
 [![codecov](https://codecov.io/github/Nick-Nunley/RAGToolBox/graph/badge.svg?token=MUXZWZMZV0)](https://codecov.io/github/Nick-Nunley/RAGToolBox)
 
 **RAGToolBox** is a modular, extensible Python package for building Retrieval-Augmented Generation (RAG) pipelines. It provides end-to-end components for:
