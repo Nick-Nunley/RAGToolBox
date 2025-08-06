@@ -41,6 +41,7 @@ addopts = [
 [tool.coverage.run]
 branch = true
 source = ["RAGToolBox"]
+relative_files = true
 
 [tool.coverage.report]
 exclude_lines = [
