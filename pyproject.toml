@@ -30,6 +30,7 @@ transformers = { version = "^4.30.0", optional = true }
 
 [tool.poetry.group.dev.dependencies]
 pytest-cov = "^6.2.1"
+pylint = "^3.3.7"
 
 [tool.pytest.ini_options]
 addopts = [
