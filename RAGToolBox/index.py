@@ -324,7 +324,7 @@ if __name__ == "__main__":
         embedding_model = args.embedding_model,
         config = IndexerConfig(
             vector_store_backend = args.vector_store,
-            vector_store_config = args.vector_store_config,
+            vector_store_config = vector_store_config,
             output_dir = Path(Path(args.kb_dir) / 'embeddings')
             )
         )
