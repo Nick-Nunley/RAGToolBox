@@ -237,7 +237,7 @@ def test_save(tmp_path: Any) -> None:
 # Integration tests
 def test_full_process_text(monkeypatch: Any, tmp_path: Any) -> None:
     # Mock requests.get for a TXT URL
-    monkeypatch.setattr(requests, 'get', lambda url: DummyResponse(b'Some text content'))
+    monkeypatch.setattr(requests, 'get', lambda url, timeout=None: DummyResponse(b'Some text content'))
     url = 'http://example.com/data.txt'
 
     LoaderClass = BaseLoader.detect_loader(url, b'some')
@@ -250,7 +250,7 @@ def test_full_process_text(monkeypatch: Any, tmp_path: Any) -> None:
 
 def test_full_process_html(monkeypatch: Any, tmp_path: Any) -> None:
     html = '<html><body><p>Hello HTML</p></body></html>'
-    monkeypatch.setattr(requests, 'get', lambda url: DummyResponse(html.encode('utf-8')))
+    monkeypatch.setattr(requests, 'get', lambda url, timeout=None: DummyResponse(html.encode('utf-8')))
     url = 'http://example.com/page.html'
 
     LoaderClass = BaseLoader.detect_loader(url, html.encode('utf-8'))
@@ -263,7 +263,7 @@ def test_full_process_html(monkeypatch: Any, tmp_path: Any) -> None:
 
 def test_full_process_pdf(monkeypatch: Any, tmp_path: Any) -> None:
     # Mock requests.get and pdfplumber.open
-    monkeypatch.setattr(requests, 'get', lambda url: DummyResponse(b'%PDF dummy content'))
+    monkeypatch.setattr(requests, 'get', lambda url, timeout=None: DummyResponse(b'%PDF dummy content'))
     pages = [DummyPage('X'), DummyPage('Y')]
     monkeypatch.setattr(pdfplumber, 'open', lambda _: DummyPDF(pages))
 
