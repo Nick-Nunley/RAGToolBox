@@ -28,7 +28,10 @@ class Retriever:
                  db_path: Path = Path('assets/kb/embeddings/embeddings.db')):
         supported_embedding_models = ['openai', 'fastembed']
         if embedding_model not in supported_embedding_models:
-            raise ValueError(f"Unsupported embedding model: {embedding_model}. Embedding model must be one of: {supported_embedding_models}")
+            raise ValueError(
+                f"Unsupported embedding model: {embedding_model}. "
+                f"Embedding model must be one of: {supported_embedding_models}"
+                )
         self.embedding_model = embedding_model
         self.db_path = db_path
 
@@ -95,7 +98,10 @@ class Retriever:
 
         # Sort by similarity and return top_k chunks
         similarities.sort(key=lambda x: x[0], reverse=True)
-        return [{'data': chunk, 'metadata': metadata} for _, chunk, metadata in similarities[:top_k]]
+        return [
+            {'data': chunk, 'metadata': metadata}
+            for _, chunk, metadata in similarities[:top_k]
+            ]
 
 
 if __name__ == "__main__":
@@ -126,6 +132,20 @@ if __name__ == "__main__":
         help = 'Path to the database'
         )
 
+    parser.add_argument(
+        '--top-k',
+        default = 10,
+        type = int,
+        help = 'Number of similar chunks to retrieve'
+        )
+
+    parser.add_argument(
+        '--max-retries',
+        default = 5,
+        type = int,
+        help = 'Number of times to tries to attempt reaching remote embedding model'
+        )
+
     args = parser.parse_args()
 
     reriever = Retriever(
@@ -133,5 +153,4 @@ if __name__ == "__main__":
         db_path = args.db_path
         )
 
-    query = args.query
-    embedding = reriever._embed_query(query)
+    context = reriever.retrieve(args.query, args.top_k, args.max_retries)

@@ -346,6 +346,20 @@ Examples:
         help='Include sources to the response'
     )
 
+    parser.add_argument(
+        '--top-k',
+        default = 10,
+        type = int,
+        help = 'Number of similar chunks to retrieve'
+        )
+
+    parser.add_argument(
+        '--max-retries',
+        default = 5,
+        type = int,
+        help = 'Number of times to tries to attempt reaching remote embedding model'
+        )
+
     # Parse arguments
     args = parser.parse_args()
 
@@ -368,7 +382,7 @@ Examples:
 
         # Retrieve context
         print(f"Retrieving context for query: {args.query}")
-        context = retriever.retrieve(args.query)
+        context = retriever.retrieve(args.query, args.top_k, args.max_retries)
 
         if not context:
             print("Warning: No relevant context found for the query.")
