@@ -6,14 +6,22 @@ which can then be passed through an embedding process.
 """
 
 import re
+from typing import List, Protocol
 import nltk
 from nltk.tokenize import sent_tokenize
-from typing import List, Protocol
 
 class Chunker(Protocol):
+    """Base Chunker class with word general wordboundary methods"""
 
     def chunk(self, text: str) -> List[str]:
-        ...
+        """
+        Main chunk entry point
+
+        Args:
+            text: String input to be chunked
+        Returns:
+            List of text chunks
+        """
 
     @staticmethod
     def _find_next_word_boundary(text: str, idx: int) -> int:
@@ -34,14 +42,18 @@ class Chunker(Protocol):
         return idx
 
 class ParagraphChunker(Chunker):
+    """Chunker subclass to chunk by paragraph breaks"""
 
     def chunk(self, text: str) -> List[str]:
+        """Main chunking method for this subclass"""
         # Implementation: split by double newlines
         return [p.strip() for p in text.split('\n\n') if p.strip()]
 
 class SentenceChunker(Chunker):
+    """Chunker subclass to chunk by sentence breaks"""
 
     def chunk(self, text: str) -> List[str]:
+        """Main chunking method for this subclass"""
         # Check if punkt data is already downloaded, download if not
         try:
             nltk.data.find('tokenizers/punkt')
@@ -52,7 +64,7 @@ class SentenceChunker(Chunker):
 class SlidingWindowChunker(Chunker):
     """
     Creates overlapping chunks using a sliding window approach.
-    Useful for RAG systems to maintain context across chunk boundaries.
+    Useful for maintaining context across chunk boundaries.
     """
 
     def __init__(self, window_size: int = 1000, overlap: int = 200):
@@ -75,7 +87,8 @@ class SlidingWindowChunker(Chunker):
 
     def chunk(self, text: str) -> List[str]:
         """
-        Split text into overlapping chunks using sliding window, ensuring chunks start and end at word boundaries.
+        Split text into overlapping chunks using sliding window,
+        ensuring chunks start and end at word boundaries.
         Args:
             text: Input text to chunk
         Returns:
@@ -90,9 +103,7 @@ class SlidingWindowChunker(Chunker):
         prev_end = 0
 
         while start < text_len:
-            end = start + self.window_size
-            if end > text_len:
-                end = text_len
+            end = min(start + self.window_size, text_len)
 
             # Adjust start and end using Chunker static helpers
             min_start = prev_end if chunks else 0
@@ -108,9 +119,7 @@ class SlidingWindowChunker(Chunker):
             prev_end = adj_end
 
             # Move to next chunk position with overlap
-            start = end - self.overlap
-            if start < prev_end:
-                start = prev_end
+            start = max(end - self.overlap, prev_end)
 
         return chunks
 
@@ -167,7 +176,10 @@ class SectionAwareChunker(Chunker):
             if re.match(r'^#{1,6}\s+', section.strip()):
                 current_header = section.strip()
                 # Check if next section is content or another header/end
-                if i+1 >= len(sections) or re.match(r'^#{1,6}\s+', sections[i+1].strip()) or not sections[i+1].strip():
+                if i+1 >= len(sections) or re.match(
+                    r'^#{1,6}\s+',
+                    sections[i+1].strip()
+                    ) or not sections[i+1].strip():
                     # No content for this header, emit header-only chunk
                     chunks.append(current_header)
                 i += 1
@@ -254,7 +266,8 @@ class SectionAwareChunker(Chunker):
 
 class HierarchicalChunker(Chunker):
     """
-    Applies a sequence of chunkers hierarchically. The output of one chunker is fed as input to the next.
+    Applies a sequence of chunkers hierarchically.
+    The output of one chunker is fed as input to the next.
     Useful for multi-stage chunking (e.g., paragraph -> sliding window).
     """
     def __init__(self, chunkers: List[Chunker]):
