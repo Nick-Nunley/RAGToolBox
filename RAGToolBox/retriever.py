@@ -12,9 +12,9 @@ import os
 import time
 from typing import List, Optional
 from pathlib import Path
+import sqlite3
 import numpy as np
 import pandas as pd
-import sqlite3
 from RAGToolBox.vector_store import VectorStoreFactory
 
 
@@ -67,12 +67,12 @@ class Retriever:
                         model=model
                     )
                     return response.data[0].embedding
-                except openai.RateLimitError as e:
+                except openai.RateLimitError as _:
                     wait_time = 2 ** attempt
                     print(f"Rate limit hit. Retrying in {wait_time} seconds...")
                     time.sleep(wait_time)
             raise RuntimeError("Failed to embed after multiple retries due to rate limits.")
-        elif self.embedding_model == "fastembed":
+        if self.embedding_model == "fastembed":
             from fastembed import TextEmbedding
             model = TextEmbedding()
             embedding = list(model.embed(query))[0]
