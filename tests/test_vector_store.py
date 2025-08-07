@@ -9,7 +9,7 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 from RAGToolBox.vector_store import VectorStoreFactory, SQLiteVectorStore, ChromaVectorStore
-from RAGToolBox.index import Indexer
+from RAGToolBox.index import Indexer, IndexerConfig
 from RAGToolBox.retriever import Retriever
 from RAGToolBox.chunk import HierarchicalChunker, SectionAwareChunker, SlidingWindowChunker
 
@@ -197,8 +197,10 @@ def test_indexer_with_sqlite_backend() -> None:
         indexer = Indexer(
             chunker=HierarchicalChunker([SectionAwareChunker(), SlidingWindowChunker()]),
             embedding_model='fastembed',
-            vector_store_backend='sqlite',
-            output_dir=output_dir
+            config=IndexerConfig(
+                vector_store_backend='sqlite',
+                output_dir=output_dir
+            )
         )
 
         # Test that vector store is initialized
@@ -216,12 +218,14 @@ def test_indexer_with_chroma_backend() -> None:
         indexer = Indexer(
             chunker=HierarchicalChunker([SectionAwareChunker(), SlidingWindowChunker()]),
             embedding_model='fastembed',
-            vector_store_backend='chroma',
-            vector_store_config={
-                'collection_name': 'test_collection',
-                'persist_directory': persist_dir
-            },
-            output_dir=output_dir
+            config=IndexerConfig(
+                vector_store_backend='chroma',
+                vector_store_config={
+                    'collection_name': 'test_collection',
+                    'persist_directory': persist_dir
+                },
+                output_dir=output_dir
+            )
         )
 
         # Test that vector store is initialized
@@ -440,8 +444,10 @@ def test_indexer_integration_with_sqlite() -> None:
         indexer = Indexer(
             chunker=HierarchicalChunker([SectionAwareChunker(), SlidingWindowChunker()]),
             embedding_model='fastembed',
-            vector_store_backend='sqlite',
-            output_dir=output_dir
+            config=IndexerConfig(
+                vector_store_backend='sqlite',
+                output_dir=output_dir
+            )
         )
 
         # Test data
@@ -486,12 +492,14 @@ def test_indexer_integration_with_chroma() -> None:
         indexer = Indexer(
             chunker=HierarchicalChunker([SectionAwareChunker(), SlidingWindowChunker()]),
             embedding_model='fastembed',
-            vector_store_backend='chroma',
-            vector_store_config={
-                'collection_name': 'integration_test',
-                'persist_directory': persist_dir
-            },
-            output_dir=output_dir
+            config=IndexerConfig(
+                vector_store_backend='chroma',
+                vector_store_config={
+                    'collection_name': 'integration_test',
+                    'persist_directory': persist_dir
+                },
+                output_dir=output_dir
+            )
         )
 
         # Test data

@@ -3,7 +3,7 @@
 import argparse
 import sqlite3
 from unittest.mock import patch, MagicMock
-from RAGToolBox.index import Indexer
+from RAGToolBox.index import Indexer, IndexerConfig, ParallelConfig
 
 class DummyChunker:
     def chunk(self, text: str):
@@ -48,7 +48,7 @@ def test_indexer_load_subparser(monkeypatch):
         indexer.main(args)
         mock_run.assert_called_once()
         called_args = mock_run.call_args[0][0]
-        assert called_args[:3] == ['python', 'src/loader.py', 'http://example.com/doc1']
+        assert called_args[:3] == ['python', 'RAGToolBox/loader.py', 'http://example.com/doc1']
         assert '--output-dir' in called_args and 'mydir' in called_args
         assert '--email' in called_args and 'test@example.com' in called_args
         assert '--use-readability' in called_args
@@ -87,7 +87,7 @@ def test_indexer_embed():
 def test_insert_embeddings_to_db(tmp_path):
     # Setup
     output_dir = tmp_path
-    indexer = Indexer(DummyChunker(), embedding_model='openai', output_dir=output_dir)
+    indexer = Indexer(DummyChunker(), embedding_model='openai', config = IndexerConfig(output_dir=output_dir))
     chunked_results = [
         {'chunk': 'This is chunk 1.', 'metadata': {'source': 'test1'}},
         {'chunk': 'This is chunk 2.', 'metadata': {'source': 'test2'}},
@@ -115,7 +115,7 @@ def test_embed_and_save_in_batch(tmp_path):
         def embed(self, chunks):
             # Return a fake embedding for each chunk
             return [[float(i)] for i in range(len(chunks))]
-    indexer = FakeIndexer(DummyChunker(), embedding_model='openai', output_dir=output_dir)
+    indexer = FakeIndexer(DummyChunker(), embedding_model='openai', config = IndexerConfig(output_dir=output_dir))
     batch = ['chunkA', 'chunkB']
     batch_entries = [
         {'chunk': 'chunkA', 'metadata': {'source': 'A'}},
@@ -142,13 +142,13 @@ def test_index_method_single_threaded(tmp_path):
         def embed(self, chunks):
             # Return a fake embedding for each chunk
             return [[float(i)] for i in range(len(chunks))]
-    indexer = FakeIndexer(DummyChunker(), embedding_model='openai', output_dir=output_dir)
+    indexer = FakeIndexer(DummyChunker(), embedding_model='openai', config=IndexerConfig(output_dir=output_dir))
     chunked_results = [
         {'chunk': 'chunkA', 'metadata': {'source': 'A'}},
         {'chunk': 'chunkB', 'metadata': {'source': 'B'}},
     ]
     # Act
-    indexer.index(chunked_results, parallel_embed=False)
+    indexer.index(chunked_results, parallel_config=ParallelConfig(parallel_embed=False))
     # Assert
     db_path = output_dir / 'embeddings.db'
     conn = sqlite3.connect(db_path)
