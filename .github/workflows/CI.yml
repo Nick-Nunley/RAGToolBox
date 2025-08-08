@@ -53,9 +53,12 @@ jobs:
       - name: Download punkt
         run: bash RAGToolBox/Download_punkt.sh
 
-      # 7) Run lint check
+      # 7) Run lint check on package and tests independently
       - name: Run pylint
-        run: pylint RAGToolBox tests
+        run: pylint RAGToolBox
+
+      - name: Run pylint
+        run: pylint tests
 
       # 8) Run tests
       - name: Run pytest
