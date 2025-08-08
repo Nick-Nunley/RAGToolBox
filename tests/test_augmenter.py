@@ -1,8 +1,10 @@
 """Tests associated with Augmenter module"""
+# pylint: disable=protected-access
+# pylint: disable=unused-import
 
-import pytest
 import os
 from unittest.mock import patch, MagicMock, Mock
+import pytest
 
 # Check for optional dependencies
 try:
@@ -92,7 +94,9 @@ def test_initialize_api_client_runtime_error():
             augmenter._initialize_api_client()
 
 
-@pytest.mark.skipif(not TRANSFORMERS_AVAILABLE, reason="transformers and torch packages not available")
+@pytest.mark.skipif(
+    not TRANSFORMERS_AVAILABLE, reason="transformers and torch packages not available"
+    )
 def test_initialize_local_model_success():
     """Test successful local model initialization."""
     with patch('transformers.AutoTokenizer') as mock_tokenizer_class, \
@@ -119,7 +123,9 @@ def test_initialize_local_model_success():
         assert mock_tokenizer.pad_token == "<eos>"
 
 
-@pytest.mark.skipif(not TRANSFORMERS_AVAILABLE, reason="transformers and torch packages not available")
+@pytest.mark.skipif(
+    not TRANSFORMERS_AVAILABLE, reason="transformers and torch packages not available"
+    )
 def test_initialize_local_model_with_pad_token():
     """Test local model initialization when pad_token already exists."""
     with patch('transformers.AutoTokenizer') as mock_tokenizer_class, \
@@ -143,7 +149,9 @@ def test_initialize_local_model_with_pad_token():
         assert augmenter.tokenizer.pad_token == "<pad>"  # Should remain unchanged
 
 
-@pytest.mark.skipif(not TRANSFORMERS_AVAILABLE, reason="transformers and torch packages not available")
+@pytest.mark.skipif(
+    not TRANSFORMERS_AVAILABLE, reason="transformers and torch packages not available"
+    )
 def test_initialize_local_model_import_error():
     """Test local model initialization with missing dependency."""
     with patch('transformers.AutoTokenizer', side_effect=ImportError("No module")):
@@ -157,7 +165,9 @@ def test_initialize_local_model_import_error():
             augmenter._initialize_local_model()
 
 
-@pytest.mark.skipif(not TRANSFORMERS_AVAILABLE, reason="transformers and torch packages not available")
+@pytest.mark.skipif(
+    not TRANSFORMERS_AVAILABLE, reason="transformers and torch packages not available"
+    )
 def test_initialize_local_model_runtime_error():
     """Test local model initialization with runtime error."""
     with patch('transformers.AutoTokenizer', side_effect=Exception("Model Error")):
@@ -175,7 +185,10 @@ def test_format_prompt():
     """Test prompt formatting with retrieved chunks."""
     augmenter = Augmenter()
     query = "What is LIFU?"
-    chunks = [{"data": "LIFU is a therapeutic technique.", "metadata": {}}, {"data": "It uses focused ultrasound.", "metadata": {}}]
+    chunks = [
+        {"data": "LIFU is a therapeutic technique.", "metadata": {}},
+        {"data": "It uses focused ultrasound.", "metadata": {}}
+        ]
 
     prompt = augmenter._format_prompt(query, chunks)
 
@@ -198,7 +211,9 @@ def test_format_prompt_empty_chunks():
     assert "Answer:" in prompt
 
 
-@pytest.mark.skipif(not TRANSFORMERS_AVAILABLE, reason="transformers and torch packages not available")
+@pytest.mark.skipif(
+    not TRANSFORMERS_AVAILABLE, reason="transformers and torch packages not available"
+    )
 def test_call_local_model():
     """Test local model inference."""
     with patch('transformers.AutoTokenizer') as mock_tokenizer_class, \
@@ -233,7 +248,9 @@ def test_call_local_model():
         mock_model.generate.assert_called_once()
 
 
-@pytest.mark.skipif(not TRANSFORMERS_AVAILABLE, reason="transformers and torch packages not available")
+@pytest.mark.skipif(
+    not TRANSFORMERS_AVAILABLE, reason="transformers and torch packages not available"
+    )
 def test_call_local_model_empty_response():
     """Test local model inference with empty response."""
     with patch('transformers.AutoTokenizer') as mock_tokenizer_class, \
@@ -265,7 +282,9 @@ def test_call_local_model_empty_response():
         assert result == "I don't have enough information to provide a detailed answer."
 
 
-@pytest.mark.skipif(not TRANSFORMERS_AVAILABLE, reason="transformers and torch packages not available")
+@pytest.mark.skipif(
+    not TRANSFORMERS_AVAILABLE, reason="transformers and torch packages not available"
+    )
 def test_call_local_model_exception():
     """Test local model inference with exception."""
     augmenter = Augmenter(use_local=True)
@@ -344,7 +363,9 @@ def test_call_huggingface_api_generic_error():
             augmenter._call_huggingface_api("test prompt")
 
 
-@pytest.mark.skipif(not TRANSFORMERS_AVAILABLE, reason="transformers and torch packages not available")
+@pytest.mark.skipif(
+    not TRANSFORMERS_AVAILABLE, reason="transformers and torch packages not available"
+    )
 def test_call_llm_local():
     """Test LLM call routing to local model."""
     with patch.object(Augmenter, '_call_local_model') as mock_local:
@@ -396,7 +417,8 @@ def test_generate_response_empty_chunks():
 
     result = augmenter.generate_response(query, chunks)
 
-    assert result == "I don't have enough information to answer your question. Please try rephrasing or expanding your query."
+    assert result == "I don't have enough information to answer your question. " + \
+    "Please try rephrasing or expanding your query."
 
 
 def test_generate_response_with_sources():
@@ -433,7 +455,8 @@ def test_full_augmenter_workflow_api():
         mock_completion = MagicMock()
         mock_choice = MagicMock()
         mock_message = MagicMock()
-        mock_message.content = "LIFU (Low-Intensity Focused Ultrasound) is a therapeutic technique that uses focused ultrasound waves."
+        mock_message.content = "LIFU (Low-Intensity Focused Ultrasound) " + \
+        "is a therapeutic technique that uses focused ultrasound waves."
         mock_choice.message = mock_message
         mock_completion.choices = [mock_choice]
         mock_client.chat.completions.create.return_value = mock_completion
@@ -455,7 +478,9 @@ def test_full_augmenter_workflow_api():
         mock_client.chat.completions.create.assert_called_once()
 
 
-@pytest.mark.skipif(not TRANSFORMERS_AVAILABLE, reason="transformers and torch packages not available")
+@pytest.mark.skipif(
+    not TRANSFORMERS_AVAILABLE, reason="transformers and torch packages not available"
+    )
 def test_full_augmenter_workflow_local():
     """Test complete augmenter workflow using local model."""
     with patch('transformers.AutoTokenizer') as mock_tokenizer_class, \
@@ -499,7 +524,8 @@ def test_augmenter_with_retriever_integration():
         mock_completion = MagicMock()
         mock_choice = MagicMock()
         mock_message = MagicMock()
-        mock_message.content = "Based on the context, LIFU and LIPUS are related but different techniques."
+        mock_message.content = "Based on the context, LIFU and " + \
+        "LIPUS are related but different techniques."
         mock_choice.message = mock_message
         mock_completion.choices = [mock_choice]
         mock_client.chat.completions.create.return_value = mock_completion
@@ -511,14 +537,25 @@ def test_augmenter_with_retriever_integration():
         # Simulate retrieved chunks from retriever
         query = "Is LIPUS the same thing as LIFU?"
         retrieved_chunks = [
-            {"data": "LIFU (Low-Intensity Focused Ultrasound) uses focused ultrasound waves.", "metadata": {}},
-            {"data": "LIPUS (Low-Intensity Pulsed Ultrasound) uses pulsed ultrasound waves.", "metadata": {}},
-            {"data": "Both techniques are used for therapeutic purposes but have different mechanisms.", "metadata": {}}
+            {
+                "data": "LIFU (Low-Intensity Focused Ultrasound) uses focused ultrasound waves.",
+                "metadata": {}
+                },
+            {
+                "data": "LIPUS (Low-Intensity Pulsed Ultrasound) uses pulsed ultrasound waves.",
+                "metadata": {}
+                },
+            {
+                "data": "Both techniques are used for therapeutic purposes " + \
+                "but have different mechanisms.",
+                "metadata": {}
+                }
         ]
 
         result = augmenter.generate_response_with_sources(query, retrieved_chunks)
 
-        assert result["response"] == "Based on the context, LIFU and LIPUS are related but different techniques."
+        assert result["response"] == "Based on the context, LIFU and LIPUS are " + \
+        "related but different techniques."
         assert result["num_sources"] == 3
         assert result["query"] == query
         assert len(result["sources"]) == 3
