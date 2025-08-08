@@ -1,7 +1,7 @@
 """Tests associated with Chunk module"""
 
-import pytest
 from typing import List
+import pytest
 
 from RAGToolBox.chunk import (
     Chunker,
@@ -13,13 +13,18 @@ from RAGToolBox.chunk import (
 )
 
 # Test data
-SAMPLE_TEXT = """This is the first paragraph. It contains multiple sentences. Each sentence should be properly handled.
+SAMPLE_TEXT = (
+    "This is the first paragraph. It contains multiple sentences. "
+    "Each sentence should be properly handled.\n\n"
+    "This is the second paragraph. It has different content."
+    "The chunker should separate these paragraphs.\n\n"
+    "This is the third paragraph. It's shorter than the others."
+    )
 
-This is the second paragraph. It has different content. The chunker should separate these paragraphs.
-
-This is the third paragraph. It's shorter than the others."""
-
-SAMPLE_TEXT_NO_PARAGRAPHS = "This is a single paragraph. It has multiple sentences. But no paragraph breaks."
+SAMPLE_TEXT_NO_PARAGRAPHS = (
+    "This is a single paragraph. It has multiple sentences. "
+    "But no paragraph breaks."
+    )
 
 SAMPLE_TEXT_EMPTY_PARAGRAPHS = """First paragraph.
 
@@ -71,15 +76,14 @@ Some content here.
 ## Section 3
 """
 
-SAMPLE_MARKDOWN_LARGE_SECTION = """# Large Document
-
-## Introduction
-
-This is a very long section that will need to be split into multiple chunks. Lorem ipsum dolor sit amet. " * 50 +
-
-## Conclusion
-
-This is the end."""
+SAMPLE_MARKDOWN_LARGE_SECTION = (
+    "# Large Document\n\n"
+    "## Introduction\n\n"
+    "This is a very long section that will need to be split into multiple chunks. "
+    "Lorem ipsum dolor sit amet. " * 50 +"\n\n"
+    "## Conclusion\n\n"
+    "This is the end."
+    )
 
 # =====================
 # UNIT TESTS
@@ -87,6 +91,7 @@ This is the end."""
 
 # SectionAwareChunker unit tests
 def test_section_aware_chunker_basic() -> None:
+    """Test section_aware chunker handles markdown patterns"""
     chunker = SectionAwareChunker(max_chunk_size=200, overlap=50)
     chunks = chunker.chunk(SAMPLE_MARKDOWN_TEXT)
     assert len(chunks) >= 1
@@ -96,6 +101,7 @@ def test_section_aware_chunker_basic() -> None:
     assert any("## Section 3" in chunk for chunk in chunks)
 
 def test_section_aware_chunker_no_headers() -> None:
+    """Test section_aware chunker can handle missing headers"""
     chunker = SectionAwareChunker(max_chunk_size=200, overlap=50)
     chunks = chunker.chunk(SAMPLE_MARKDOWN_NO_HEADERS)
     assert len(chunks) >= 1
@@ -103,6 +109,7 @@ def test_section_aware_chunker_no_headers() -> None:
     assert any("document without any markdown headers" in chunk for chunk in chunks)
 
 def test_section_aware_chunker_empty_sections() -> None:
+    """Test section_aware chunker preserves headers for empty sections"""
     chunker = SectionAwareChunker(max_chunk_size=200, overlap=50)
     chunks = chunker.chunk(SAMPLE_MARKDOWN_EMPTY_SECTIONS)
     assert len(chunks) >= 1
@@ -113,6 +120,7 @@ def test_section_aware_chunker_empty_sections() -> None:
     assert any("## Section 3" in chunk for chunk in chunks)
 
 def test_section_aware_chunker_large_section() -> None:
+    """Test section_aware chunker splits large sections into smaller sections"""
     chunker = SectionAwareChunker(max_chunk_size=500, overlap=100)
     chunks = chunker.chunk(SAMPLE_MARKDOWN_LARGE_SECTION)
     assert len(chunks) >=2
@@ -122,16 +130,22 @@ def test_section_aware_chunker_large_section() -> None:
     assert any("## Conclusion" in chunk for chunk in chunks)
 
 def test_section_aware_chunker_empty_text() -> None:
+    """Test to check section_aware chunker handles empty strings"""
     chunker = SectionAwareChunker()
     chunks = chunker.chunk("")
     assert len(chunks) == 0
 
 def test_section_aware_chunker_whitespace_only() -> None:
+    """Test to check section_aware chunker doesn't capture whitespace"""
     chunker = SectionAwareChunker()
     chunks = chunker.chunk("   \n\n   \n\n   ")
     assert len(chunks) == 0
 
 def test_section_aware_chunker_single_header() -> None:
+    """
+    Test to check section_aware chunker handles a single header and
+    doesn't split if within max_chunk_size
+    """
     text = "# Single Header\n\nSome content here."
     chunker = SectionAwareChunker(max_chunk_size=100, overlap=20)
     chunks = chunker.chunk(text)
@@ -140,7 +154,12 @@ def test_section_aware_chunker_single_header() -> None:
     assert "Some content here" in chunks[0]
 
 def test_section_aware_chunker_nested_headers() -> None:
-    text = "# Title\n\n## Section 1\n\n### Subsection11\nContent here.\n\n### Subsection12\nMore content.\n\n## Section 2\n\nFinal content."
+    """Test to check section_aware chunker handles nested headers"""
+    text = (
+        "# Title\n\n## Section 1\n\n### Subsection11\n"
+        "Content here.\n\n### Subsection12\nMore content.\n\n"
+        "## Section 2\n\nFinal content."
+        )
     chunker = SectionAwareChunker(max_chunk_size=200, overlap=50)
     chunks = chunker.chunk(text)
     assert len(chunks) >= 1  # Check that all header levels are preserved
@@ -151,8 +170,11 @@ def test_section_aware_chunker_nested_headers() -> None:
     assert any("## Section 2" in chunk for chunk in chunks)
 
 def test_section_aware_chunker_break_point_selection() -> None:
-    # Test that the chunker finds good break points
-    text = "# Test Document\n\n## Long Section\nThis is a sentence. " * 5 + "\n\n## Short Section\nBrief content."
+    """Test that section_aware chunker finds good break points"""
+    text = (
+        "# Test Document\n\n## Long Section\nThis is a sentence. " * 5 + "\n\n"
+        "## Short Section\nBrief content."
+        )
     chunker = SectionAwareChunker(max_chunk_size=300, overlap=50)
     chunks = chunker.chunk(text)
     assert len(chunks) >= 2
@@ -166,7 +188,7 @@ def test_section_aware_chunker_break_point_selection() -> None:
             assert not chunk.strip().endswith('Thi')
 
 def test_section_aware_chunker_parameter_validation() -> None:
-    # Test invalid parameters
+    """Test invalid parameters are handled for section_aware chunker"""
     with pytest.raises(ValueError):
         SectionAwareChunker(max_chunk_size=0)
 
@@ -177,6 +199,7 @@ def test_section_aware_chunker_parameter_validation() -> None:
         SectionAwareChunker(max_chunk_size=10, overlap=100)
 
 def test_section_aware_chunker_protocol_compliance() -> None:
+    """Test output dtype compliance of section_aware chunker"""
     chunker = SectionAwareChunker()
     def process_with_chunker(chunker: Chunker, text: str) -> List[str]:
         return chunker.chunk(text)
@@ -184,17 +207,22 @@ def test_section_aware_chunker_protocol_compliance() -> None:
     assert isinstance(result, list)
 
 def test_section_aware_chunker_with_none_input() -> None:
+    """Test section_aware chunker handles dtype: None input"""
     chunker = SectionAwareChunker()
     with pytest.raises(AttributeError):
         chunker.chunk(None)  # type: ignore
 
 def test_section_aware_chunker_with_non_string_input() -> None:
+    """Test section_aware chunker handles non-string dtypes"""
     chunker = SectionAwareChunker()
     with pytest.raises(AttributeError):
         chunker.chunk(123)  # type: ignore
 
 def test_section_aware_chunker_no_word_clipping() -> None:
-    # Create a long section with a word that would be split by naive chunking
+    """
+    Test section_aware chunker creates a long section with
+    a word that would be split by naive chunking
+    """
     header = "## Section"
     text = header + "\n" + (
         "This is a long section with a wordthatshouldnotbesplit " * 10
@@ -206,6 +234,7 @@ def test_section_aware_chunker_no_word_clipping() -> None:
 
 # ParagraphChunker unit tests
 def test_paragraph_chunker_basic() -> None:
+    """Basic smokescreen test for paragraph chunker"""
     chunkers = [
         ParagraphChunker(),
         SlidingWindowChunker(window_size=1000, overlap=200),
@@ -225,6 +254,7 @@ def test_paragraph_chunker_basic() -> None:
             assert any("third paragraph" in c for c in chunks)
 
 def test_paragraph_chunker_single_paragraph() -> None:
+    """Test for a single paragraph input to paragraph chunker"""
     chunkers = [
         ParagraphChunker(),
         SlidingWindowChunker(window_size=1000, overlap=200),
@@ -239,6 +269,7 @@ def test_paragraph_chunker_single_paragraph() -> None:
             assert any("single paragraph" in c for c in chunks)
 
 def test_paragraph_chunker_empty_paragraphs() -> None:
+    """Test paragraph chunker on empty paragraph"""
     chunkers = [
         ParagraphChunker(),
         SlidingWindowChunker(window_size=1000, overlap=200),
@@ -251,6 +282,7 @@ def test_paragraph_chunker_empty_paragraphs() -> None:
         assert all(chunk.strip() for chunk in chunks)
 
 def test_paragraph_chunker_mixed_whitespace() -> None:
+    """Test paragraph chunker handles mixed whitespace"""
     chunkers = [
         ParagraphChunker(),
         SlidingWindowChunker(window_size=1000, overlap=200),
@@ -270,6 +302,7 @@ def test_paragraph_chunker_mixed_whitespace() -> None:
             assert any("Third paragraph" in chunk for chunk in chunks)
 
 def test_paragraph_chunker_empty_text() -> None:
+    """Test paragraph chunker handles empty text"""
     chunkers = [
         ParagraphChunker(),
         SlidingWindowChunker(window_size=1000, overlap=200),
@@ -280,6 +313,7 @@ def test_paragraph_chunker_empty_text() -> None:
         assert len(chunks) == 0
 
 def test_paragraph_chunker_whitespace_only() -> None:
+    """Test paragraph chunker handles whitespace only"""
     chunkers = [
         ParagraphChunker(),
         SlidingWindowChunker(window_size=1000, overlap=200),
@@ -291,6 +325,7 @@ def test_paragraph_chunker_whitespace_only() -> None:
 
 # SentenceChunker unit tests
 def test_sentence_chunker_basic() -> None:
+    """Basic smokescreen test for sentence chunker"""
     chunkers = [
         SentenceChunker(),
         HierarchicalChunker([SentenceChunker()]),
@@ -303,7 +338,11 @@ def test_sentence_chunker_basic() -> None:
         assert "paragraph breaks" in chunks[2]
 
 def test_sentence_chunker_complex_sentences() -> None:
-    complex_text = "Dr. Smith said: 'This is a quote.' Mr. Jones replied. What about abbreviations like etc.?"
+    """Test sentence chunker can handle sentences with literal dot chars"""
+    complex_text = (
+        "Dr. Smith said: 'This is a quote.' "
+        "Mr. Jones replied. What about abbreviations like etc.?"
+        )
     chunkers = [
         SentenceChunker(),
         HierarchicalChunker([SentenceChunker()]),
@@ -317,6 +356,7 @@ def test_sentence_chunker_complex_sentences() -> None:
         assert chunks[3] == "?"
 
 def test_sentence_chunker_empty_text() -> None:
+    """Test sentence chunker can handle empty strings"""
     chunkers = [
         SentenceChunker(),
         HierarchicalChunker([SentenceChunker()]),
@@ -326,6 +366,7 @@ def test_sentence_chunker_empty_text() -> None:
         assert len(chunks) == 0
 
 def test_sentence_chunker_single_sentence() -> None:
+    """Test sentence chunker doesn't split single sentence"""
     chunkers = [
         SentenceChunker(),
         HierarchicalChunker([SentenceChunker()]),
@@ -336,6 +377,7 @@ def test_sentence_chunker_single_sentence() -> None:
         assert chunks[0] == "This is a single sentence."
 
 def test_sentence_chunker_with_numbers() -> None:
+    """Test sentence chunker handles floating point number strings"""
     text = "The study used 1.5 Tesla MRI. Fig. 1 shows the results. The p-value was < 0.05."
     chunkers = [
         SentenceChunker(),
@@ -350,6 +392,7 @@ def test_sentence_chunker_with_numbers() -> None:
         assert "p-value was < 0.05" in chunks[3]
 
 def test_sentence_chunker_with_quotes() -> None:
+    """Test sentence chunker handles quotes"""
     text = 'He said "This is quoted text." Then he continued. "Another quote."'
     chunkers = [
         SentenceChunker(),
@@ -364,6 +407,7 @@ def test_sentence_chunker_with_quotes() -> None:
 
 # Protocol compliance and error handling
 def test_chunker_protocol_compliance() -> None:
+    """Basic protocol compliance test with chunkers"""
     chunkers = [
         ParagraphChunker(),
         SentenceChunker(),
@@ -378,6 +422,7 @@ def test_chunker_protocol_compliance() -> None:
         assert isinstance(result, list)
 
 def test_chunker_with_none_input() -> None:
+    """Test chunkers handle dtype: None inputs"""
     chunkers = [
         ParagraphChunker(),
         SentenceChunker(),
@@ -394,6 +439,7 @@ def test_chunker_with_none_input() -> None:
                 chunker.chunk(None)  # type: ignore
 
 def test_chunker_with_non_string_input() -> None:
+    """Test chunkers handle non-string inputs"""
     chunkers = [
         ParagraphChunker(),
         SentenceChunker(),
@@ -411,6 +457,7 @@ def test_chunker_with_non_string_input() -> None:
 
 # SlidingWindowChunker unit tests
 def test_sliding_window_chunker_no_word_clipping() -> None:
+    """Test sliding_window_chunker doesn't clip words at window boundaries"""
     # The word 'boundaryword' is placed so it would be clipped by a naive window
     text = (
         "This is a test sentence that is designed to end right at the window "
@@ -428,9 +475,17 @@ def test_sliding_window_chunker_no_word_clipping() -> None:
             start_idx = text.find(chunk)
             end_idx = start_idx + len(chunk)
             if start_idx > 0:
-                assert text[start_idx - 1] in (' ', '\n'), f"Chunk does not start at whitespace: {chunk!r}"
+                assert (
+                    text[start_idx - 1] in (' ', '\n')
+                    ), (
+                    f"Chunk does not start at whitespace: {chunk!r}"
+                    )
             if end_idx < len(text):
-                assert text[end_idx] in (' ', '\n', '.'), f"Chunk does not end at whitespace: {chunk!r}"
+                assert (
+                    text[end_idx] in (' ', '\n', '.')
+                    ), (
+                    f"Chunk does not end at whitespace: {chunk!r}"
+                    )
     # Also check that the full word is present in at least one chunk
     assert any('boundaryword' in chunk for chunk in chunks)
 
@@ -439,6 +494,7 @@ def test_sliding_window_chunker_no_word_clipping() -> None:
 # =====================
 
 def test_section_aware_chunker_with_real_document_content() -> None:
+    """Full test of section_aware chunker class with document"""
     real_document = """# A review of low-intensity focused ultrasound for neuromodulation
 
 ## Abstract
@@ -475,14 +531,35 @@ LIFU represents a promising new approach to neuromodulation."""
     assert any("## Conclusion" in chunk for chunk in chunks)
 
 def test_section_aware_chunker_with_ncbi_loader_output() -> None:
+    """Test section_aware chunker with NCBILoader test output"""
     # Simulate output from NCBILoader
-    ncbi_output = """# A review of low-intensity focused ultrasound for neuromodulation
-**Authors:** Hongchae Baek, Ki Joo Pahk, Hyungmin Kim
-**Journal:** Biomedical Engineering Letters
-**DOI:** 10.107/s1353407*Keywords:** Focused ultrasound, Neuromodulation, Brain, Non-invasive
----
-## Abstract
-Abstracts The ability of ultrasound to be focused into a small region of interest through the intact skull within the brain has led researchers to investigate its potential therapeutic uses for functional neurosurgery and tumor ablation. Studies have used high-intensity focused ultrasound to ablate tissue in localised brain regions for movement disorders and chronic pain while sparing the overlying and surrounding tissue. More recently, low-intensity focused ultrasound (LIFU) that induces reversible biological effects has been emerged as an alternative neuromodulation modality due to its bi-modal ( i.e. excitation and suppression) capability with exquisite spatial specificity and depth penetration. Many compelling evidences of LIFU-mediated neuromodulatory effects including behavioral responses, electrophysiological recordings and functional imaging data have been found in the last decades. LIFU, therefore, has the enormous potential to improve the clinical outcomes as well as to replace the currently available neuromodulation techniques such as deep brain stimulation (DBS), transcranial magnetic stimulation and transcranial current stimulation. In this paper, we aim to provide a summary of pioneering studies in the field of ultrasonic neuromodulation including its underlying mechanisms that were published in the last 60 years. In closing, some of potential clinical applications of ultrasonic brain stimulation will be discussed."""
+    ncbi_output = (
+        "# A review of low-intensity focused ultrasound for neuromodulation\n"
+        "**Authors:** Hongchae Baek, Ki Joo Pahk, Hyungmin Kim\n"
+        "**Journal:** Biomedical Engineering Letters\n"
+        "**DOI:** 10.107/s1353407*Keywords:** Focused ultrasound, "
+        "Neuromodulation, Brain, Non-invasive\n"
+        "---\n"
+        "## Abstract\n"
+        "Abstracts The ability of ultrasound to be focused into a small region of interest "
+        "through the intact skull within the brain has led researchers to investigate its "
+        "potential therapeutic uses for functional neurosurgery and tumor ablation. "
+        "Studies have used high-intensity focused ultrasound to ablate tissue in localised "
+        "brain regions for movement disorders and chronic pain while sparing the overlying and "
+        "surrounding tissue. More recently, low-intensity focused ultrasound (LIFU) that induces "
+        "reversible biological effects has been emerged as an alternative neuromodulation modality "
+        "due to its bi-modal ( i.e. excitation and suppression) capability with exquisite spatial "
+        "specificity and depth penetration. Many compelling evidences of LIFU-mediated "
+        "neuromodulatory effects including behavioral responses, electrophysiological recordings "
+        "and functional imaging data have been found in the last decades. LIFU, therefore, has "
+        "the enormous potential to improve the clinical outcomes as well as to replace the "
+        "currently available neuromodulation techniques such as deep brain stimulation (DBS), "
+        "transcranial magnetic stimulation and transcranial current stimulation. In this paper, "
+        "we aim to provide a summary of pioneering studies in the field of ultrasonic "
+        "neuromodulation including its underlying mechanisms that were published in the last 60 "
+        "years. In closing, some of potential clinical applications of ultrasonic brain "
+        "stimulation will be discussed."
+        )
     chunker = SectionAwareChunker(max_chunk_size=400, overlap=100)
     chunks = chunker.chunk(ncbi_output)
 
@@ -494,6 +571,7 @@ Abstracts The ability of ultrasound to be focused into a small region of interes
     assert any("LIFU-mediated neuromodulatory effects" in chunk for chunk in chunks)
 
 def test_chunker_performance_with_large_text() -> None:
+    """Test chunker handles large text documents"""
     # Test performance with larger text
     large_text = "# Large Document\n\n" + "This is a sentence. " * 10
 
@@ -512,6 +590,7 @@ def test_chunker_performance_with_large_text() -> None:
         assert all(chunk.strip() for chunk in chunks)
 
 def test_chunker_edge_cases() -> None:
+    """Edge case tests for chunkers"""
     edge_cases = [
         "",  # Empty string
         "   \n\n   \n\n  ", # Whitespace only
@@ -537,6 +616,7 @@ def test_chunker_edge_cases() -> None:
                 assert all(chunk.strip() for chunk in chunks)
 
 def test_chunker_consistency() -> None:
+    """Test to see chunking is not stochastic"""
     # Test that chunkers produce consistent results
     text = SAMPLE_MARKDOWN_TEXT
 
