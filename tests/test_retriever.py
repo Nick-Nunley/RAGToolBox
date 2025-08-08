@@ -1,19 +1,20 @@
 """Tests associated with Retriever module"""
+# pylint: disable=protected-access
 
-import pytest
 import os
 import tempfile
+import json
 import sqlite3
-import numpy as np
 from pathlib import Path
 from unittest.mock import Mock, patch
-import json
+import pytest
+import numpy as np
 from RAGToolBox.vector_store import SQLiteVectorStore
-
 from RAGToolBox.retriever import Retriever
 
 @pytest.fixture(autouse=True)
 def no_sqlite_init(monkeypatch):
+    """Patch to prevent SQLiteVectorStore init method"""
     # prevent it from creating any files on disk
     monkeypatch.setattr(SQLiteVectorStore, "initialize", lambda self: None)
 
@@ -77,7 +78,8 @@ def test_load_db_success() -> None:
             ('hash3', 'test text 3', '[0.7, 0.8, 0.9]', '{"title": "Test 3"}', 'test3.txt')
         ]
         cursor.executemany(
-            'INSERT INTO embeddings (id, chunk, embedding, metadata, source) VALUES (?, ?, ?, ?, ?)',
+            ('INSERT INTO embeddings (id, chunk, embedding, metadata, source) '
+            'VALUES (?, ?, ?, ?, ?)'),
             test_data
         )
         conn.commit()
@@ -148,7 +150,7 @@ def test_embed_query_fastembed_success() -> None:
     """Test successful FastEmbed embedding"""
     # Skip this test if fastembed is not available
     try:
-        from fastembed import TextEmbedding
+        from fastembed import TextEmbedding # pylint: disable=unused-import
     except ImportError:
         pytest.skip("fastembed package not available")
 
@@ -204,14 +206,44 @@ def test_retrieve_method_full_workflow() -> None:
 
         # Create test data with known embeddings for predictable similarity scores
         test_data = [
-            ('hash1', 'biomedical research on ultrasound therapy', '[0.9, 0.1, 0.2, 0.3, 0.4]', '{"title": "Biomedical"}', 'bio.txt'),
-            ('hash2', 'clinical trials for drug discovery', '[0.1, 0.8, 0.2, 0.3, 0.4]', '{"title": "Clinical"}', 'clinical.txt'),
-            ('hash3', 'neuroscience and brain imaging studies', '[0.1, 0.2, 0.7, 0.3, 0.4]', '{"title": "Neuroscience"}', 'neuro.txt'),
-            ('hash4', 'cancer treatment protocols', '[0.1, 0.2, 0.3, 0.6, 0.4]', '{"title": "Cancer"}', 'cancer.txt'),
-            ('hash5', 'medical device regulations', '[0.1, 0.2, 0.3, 0.4, 0.5]', '{"title": "Medical"}', 'medical.txt')
+            (
+                'hash1',
+                'biomedical research on ultrasound therapy',
+                '[0.9, 0.1, 0.2, 0.3, 0.4]',
+                '{"title": "Biomedical"}',
+                'bio.txt'
+                ),
+            (
+                'hash2',
+                'clinical trials for drug discovery',
+                '[0.1, 0.8, 0.2, 0.3, 0.4]',
+                '{"title": "Clinical"}',
+                'clinical.txt'
+                ),
+            (
+                'hash3',
+                'neuroscience and brain imaging studies',
+                '[0.1, 0.2, 0.7, 0.3, 0.4]',
+                '{"title": "Neuroscience"}',
+                'neuro.txt'
+                ),
+            (
+                'hash4',
+                'cancer treatment protocols',
+                '[0.1, 0.2, 0.3, 0.6, 0.4]',
+                '{"title": "Cancer"}', 'cancer.txt'
+                ),
+            (
+                'hash5',
+                'medical device regulations',
+                '[0.1, 0.2, 0.3, 0.4, 0.5]',
+                '{"title": "Medical"}',
+                'medical.txt'
+                )
         ]
         cursor.executemany(
-            'INSERT INTO embeddings (id, chunk, embedding, metadata, source) VALUES (?, ?, ?, ?, ?)',
+            ('INSERT INTO embeddings (id, chunk, embedding, metadata, source) '
+            'VALUES (?, ?, ?, ?, ?)'),
             test_data
         )
         conn.commit()
@@ -228,15 +260,27 @@ def test_retrieve_method_full_workflow() -> None:
             results = retriever.retrieve('biomedical ultrasound research', top_k=3)
 
             # Verify the method was called correctly
-            mock_embed.assert_called_once_with(query='biomedical ultrasound research', max_retries=5)
+            mock_embed.assert_called_once_with(
+                query='biomedical ultrasound research',
+                max_retries=5
+                )
 
             # Verify we got exactly 3 results
             assert len(results) == 3
 
             expected_order = [
-                {'data': 'biomedical research on ultrasound therapy', 'metadata': {'title': 'Biomedical'}},  # Highest similarity
-                {'data': 'cancer treatment protocols', 'metadata': {'title': 'Cancer'}},                     # Second highest
-                {'data': 'neuroscience and brain imaging studies', 'metadata': {'title': 'Neuroscience'}}    # Third highest
+                { # Highest similarity
+                    'data': 'biomedical research on ultrasound therapy',
+                    'metadata': {'title': 'Biomedical'}
+                    },
+                { # Second highest
+                    'data': 'cancer treatment protocols',
+                    'metadata': {'title': 'Cancer'}
+                    },
+                { # Third highest
+                    'data': 'neuroscience and brain imaging studies',
+                    'metadata': {'title': 'Neuroscience'}
+                    }
             ]
             assert results == expected_order
 
@@ -275,7 +319,8 @@ def test_retrieve_method_top_k_parameter() -> None:
             ('hash5', 'chunk5', '[0.5, 0.5, 0.6]', '{"title": "Chunk 5"}', 'chunk5.txt')
         ]
         cursor.executemany(
-            'INSERT INTO embeddings (id, chunk, embedding, metadata, source) VALUES (?, ?, ?, ?, ?)',
+            ('INSERT INTO embeddings (id, chunk, embedding, metadata, source) '
+            'VALUES (?, ?, ?, ?, ?)'),
             test_data
         )
         conn.commit()
@@ -370,7 +415,7 @@ def test_retriever_unicode_query() -> None:
 # INTEGRATION TESTS
 # =====================
 
-def test_retriever_full_integration() -> None:
+def test_retriever_full_integration() -> None: # pylint: disable=too-many-locals
     """Integration test using actual Retriever.retrieve method without mocking internal methods"""
     # Skip this test if fastembed is not available
     try:
@@ -398,8 +443,16 @@ def test_retriever_full_integration() -> None:
 
         # Create test data with biomedical content
         chunks = [
-            {"data": 'Low-intensity focused ultrasound therapy for non-invasive brain stimulation', "metadata": {}},
-            {"data": 'Clinical trials investigating drug efficacy in cancer treatment', "metadata": {}},
+            {
+                "data": ('Low-intensity focused ultrasound therapy '
+                'for non-invasive brain stimulation'),
+                "metadata": {}
+                },
+            {
+                "data": ('Clinical trials investigating drug efficacy '
+                'in cancer treatment'),
+                "metadata": {}
+                },
             {"data": 'Medical device regulations and safety standards', "metadata": {}},
             {"data": 'Neuroscience research on brain imaging techniques', "metadata": {}},
             {"data": 'Biomedical engineering applications in healthcare', "metadata": {}}
@@ -415,7 +468,12 @@ def test_retriever_full_integration() -> None:
             cursor.execute('''
                 INSERT INTO embeddings (id, chunk, embedding, metadata, source)
                 VALUES (?, ?, ?, ?, ?)
-            ''', (chunk_id, chunk['data'], json.dumps(embedding.tolist()), '{"title": "Test"}', f'test_{i}.txt'))
+            ''', (
+                chunk_id,
+                chunk['data'],
+                json.dumps(embedding.tolist()),
+                '{"title": "Test"}', f'test_{i}.txt'
+                ))
 
         conn.commit()
         conn.close()
