@@ -1,13 +1,14 @@
 """Tests associated with Vector_store module"""
+# pylint: disable=protected-access
+# pylint: disable=unused-import
 
-import pytest
 import os
 import tempfile
 import sqlite3
-import numpy as np
 from pathlib import Path
-from unittest.mock import Mock, patch
-
+from unittest.mock import patch
+import pytest
+import numpy as np
 from RAGToolBox.vector_store import VectorStoreFactory, SQLiteVectorStore, ChromaVectorStore
 from RAGToolBox.index import Indexer, IndexerConfig
 from RAGToolBox.retriever import Retriever
