@@ -1,4 +1,5 @@
 """Tests associated with Index module"""
+# pylint: disable=protected-access
 
 import argparse
 import sqlite3
@@ -6,8 +7,17 @@ from unittest.mock import patch, MagicMock
 from RAGToolBox.index import Indexer, IndexerConfig, ParallelConfig
 
 class DummyChunker:
+    """Mock chunker class"""
     def chunk(self, text: str):
+        """Mock chunk method"""
         return [text]
+
+class FakeIndexer(Indexer):
+    """Mock Indexer subclass"""
+    def embed(self, chunks, max_retries = 5):
+        """Mock embed method"""
+        # Return a fake embedding for each chunk
+        return [[float(i)] for i in range(len(chunks))]
 
 
 # =====================
@@ -15,17 +25,27 @@ class DummyChunker:
 # =====================
 
 # Test the load subparser
-def test_indexer_load_subparser(monkeypatch):
-    # Recreate the parser logic from src/index.py
+def test_indexer_load_subparser() -> None:
+    """Test load subparser works with Indexer module"""
+    # Recreate the parser logic from RAGToolBox/index.py
     parser = argparse.ArgumentParser(description="Indexing pipeline with optional loading")
-    parser.add_argument('--kb-dir', '-k', default='assets/kb', help='Directory where knowledge base is stored')
+    parser.add_argument(
+        '--kb-dir',
+        '-k',
+        default='assets/kb',
+        help='Directory where knowledge base is stored'
+        )
     parser.add_argument('--embedding-model', '-e', default='openai', help='Embedding model to use')
     subparsers = parser.add_subparsers(dest='command', help='Available commands')
     load_parser = subparsers.add_parser('load', help='Load documents from URLs')
     load_parser.add_argument('urls', nargs='+', help='URLs to load')
     load_parser.add_argument('--output-dir', '-o', default='assets/kb', help='Output directory')
     load_parser.add_argument('--email', '-e', help='Email for NCBI E-utilities')
-    load_parser.add_argument('--use-readability', action='store_true', help='Use readability fallback')
+    load_parser.add_argument(
+        '--use-readability',
+        action='store_true',
+        help='Use readability fallback'
+        )
 
     # Simulate CLI args for the load subcommand
     cli_args = [
@@ -55,20 +75,22 @@ def test_indexer_load_subparser(monkeypatch):
 
 
 # Test the chunk method
-def test_indexer_chunk():
+def test_indexer_chunk() -> None:
+    """Test that chunking works with Indexer"""
     indexer = Indexer(DummyChunker(), embedding_model='openai')
     doc = ("test.txt", "This is a test document.")
     result = indexer.chunk(doc)
     assert isinstance(result, tuple)
     assert result[0] == "test.txt"
     assert isinstance(result[1], dict)  # metadata
-    assert result[1] == {}  # no metadata in this doc
+    assert not result[1] # no metadata in this doc
     assert isinstance(result[2], list)  # chunks
     assert result[2] == ["This is a test document."]
 
 
 # Test the embed method
-def test_indexer_embed():
+def test_indexer_embed() -> None:
+    """Test that embedding works with Indexer"""
     indexer = Indexer(DummyChunker(), embedding_model='openai')
     chunks = ["chunk one", "chunk two"]
     fake_embeddings = [[0.1, 0.2], [0.3, 0.4]]
@@ -76,7 +98,10 @@ def test_indexer_embed():
         mock_client = MagicMock()
         mock_response = MagicMock()
         # Simulate response.data as a list of objects with .embedding attribute
-        mock_response.data = [MagicMock(embedding=fake_embeddings[0]), MagicMock(embedding=fake_embeddings[1])]
+        mock_response.data = [
+            MagicMock(embedding=fake_embeddings[0]),
+            MagicMock(embedding=fake_embeddings[1])
+            ]
         mock_client.embeddings.create.return_value = mock_response
         mock_client_class.return_value = mock_client
 
@@ -84,10 +109,15 @@ def test_indexer_embed():
         assert result == fake_embeddings
 
 
-def test_insert_embeddings_to_db(tmp_path):
+def test_insert_embeddings_to_db(tmp_path: str) -> None:
+    """Test that Indexer inserts embeddings into database"""
     # Setup
     output_dir = tmp_path
-    indexer = Indexer(DummyChunker(), embedding_model='openai', config = IndexerConfig(output_dir=output_dir))
+    indexer = Indexer(
+        chunker=DummyChunker(),
+        embedding_model='openai',
+        config = IndexerConfig(output_dir=output_dir)
+        )
     chunked_results = [
         {'chunk': 'This is chunk 1.', 'metadata': {'source': 'test1'}},
         {'chunk': 'This is chunk 2.', 'metadata': {'source': 'test2'}},
@@ -108,14 +138,15 @@ def test_insert_embeddings_to_db(tmp_path):
     assert sources == {'test1', 'test2'}
     conn.close()
 
-def test_embed_and_save_in_batch(tmp_path):
+def test_embed_and_save_in_batch(tmp_path: str) -> None:
+    """Test embedding and saving in batches works for Indexer"""
     # Setup
     output_dir = tmp_path
-    class FakeIndexer(Indexer):
-        def embed(self, chunks):
-            # Return a fake embedding for each chunk
-            return [[float(i)] for i in range(len(chunks))]
-    indexer = FakeIndexer(DummyChunker(), embedding_model='openai', config = IndexerConfig(output_dir=output_dir))
+    indexer = FakeIndexer(
+        chunker=DummyChunker(),
+        embedding_model='openai',
+        config = IndexerConfig(output_dir=output_dir)
+        )
     batch = ['chunkA', 'chunkB']
     batch_entries = [
         {'chunk': 'chunkA', 'metadata': {'source': 'A'}},
@@ -136,13 +167,14 @@ def test_embed_and_save_in_batch(tmp_path):
     assert sources == {'A', 'B'}
     conn.close()
 
-def test_index_method_single_threaded(tmp_path):
+def test_index_method_single_threaded(tmp_path: str) -> None:
+    """Test of Indexer.index method single-threaded"""
     output_dir = tmp_path
-    class FakeIndexer(Indexer):
-        def embed(self, chunks):
-            # Return a fake embedding for each chunk
-            return [[float(i)] for i in range(len(chunks))]
-    indexer = FakeIndexer(DummyChunker(), embedding_model='openai', config=IndexerConfig(output_dir=output_dir))
+    indexer = FakeIndexer(
+        chunker=DummyChunker(),
+        embedding_model='openai',
+        config=IndexerConfig(output_dir=output_dir)
+        )
     chunked_results = [
         {'chunk': 'chunkA', 'metadata': {'source': 'A'}},
         {'chunk': 'chunkB', 'metadata': {'source': 'B'}},
