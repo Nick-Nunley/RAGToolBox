@@ -19,22 +19,20 @@ class VectorStoreBackend(ABC):
     @abstractmethod
     def initialize(self) -> None:
         """Initialize the vector store (create tables, collections, etc.)."""
-        pass
 
     @abstractmethod
-    def insert_embeddings(self, chunked_results: List[Dict[str, Any]], embeddings: List[List[float]]) -> None:
+    def insert_embeddings(
+        self, chunked_results: List[Dict[str, Any]], embeddings: List[List[float]]
+        ) -> None:
         """Insert chunks and their embeddings into the vector store."""
-        pass
 
     @abstractmethod
     def get_all_embeddings(self) -> List[Dict[str, Any]]:
         """Get all embeddings from the vector store for similarity calculation."""
-        pass
 
     @abstractmethod
     def delete_collection(self) -> None:
         """Delete the entire collection/database."""
-        pass
 
 
 class SQLiteVectorStore(VectorStoreBackend):
@@ -60,7 +58,9 @@ class SQLiteVectorStore(VectorStoreBackend):
         conn.commit()
         conn.close()
 
-    def insert_embeddings(self, chunked_results: List[Dict[str, Any]], embeddings: List[List[float]]) -> None:
+    def insert_embeddings(
+        self, chunked_results: List[Dict[str, Any]], embeddings: List[List[float]]
+        ) -> None:
         """Insert chunk, embedding, and metadata into SQLite database."""
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
@@ -114,8 +114,10 @@ class SQLiteVectorStore(VectorStoreBackend):
 class ChromaVectorStore(VectorStoreBackend):
     """Chroma-based vector store backend for remote/local vector database."""
 
-    def __init__(self, collection_name: str = "rag_collection", persist_directory: Optional[Path] = None,
-                 chroma_client_url: Optional[str] = None):
+    def __init__(
+        self, collection_name: str = "rag_collection", persist_directory: Optional[Path] = None,
+        chroma_client_url: Optional[str] = None
+        ):
         """
         Initialize Chroma vector store.
 
@@ -134,8 +136,10 @@ class ChromaVectorStore(VectorStoreBackend):
         """Initialize Chroma client and create/get collection."""
         try:
             import chromadb
-        except ImportError:
-            raise ImportError("ChromaDB is not installed. Install it with: pip install chromadb")
+        except ImportError as e:
+            raise ImportError(
+                "ChromaDB is not installed. Install it with: pip install chromadb"
+                ) from e
 
         if self.chroma_client_url:
             # Remote Chroma server
@@ -150,10 +154,12 @@ class ChromaVectorStore(VectorStoreBackend):
         # Get or create collection
         try:
             self.collection = self.client.get_collection(name=self.collection_name)
-        except Exception:
+        except Exception: # pylint: disable=broad-exception-caught
             self.collection = self.client.create_collection(name=self.collection_name)
 
-    def insert_embeddings(self, chunked_results: List[Dict[str, Any]], embeddings: List[List[float]]) -> None:
+    def insert_embeddings(
+        self, chunked_results: List[Dict[str, Any]], embeddings: List[List[float]]
+        ) -> None:
         """Insert chunks and embeddings into Chroma collection."""
         if not self.collection:
             raise RuntimeError("Chroma collection not initialized. Call initialize() first.")
@@ -163,7 +169,7 @@ class ChromaVectorStore(VectorStoreBackend):
         documents = []
         metadatas = []
 
-        for i, (entry, embedding) in enumerate(zip(chunked_results, embeddings)):
+        for _, (entry, _) in enumerate(zip(chunked_results, embeddings)):
             chunk_id = hashlib.sha256(entry['chunk'].encode('utf-8')).hexdigest()
             ids.append(chunk_id)
             documents.append(entry['chunk'])
@@ -204,7 +210,7 @@ class ChromaVectorStore(VectorStoreBackend):
         if self.client and self.collection:
             try:
                 self.client.delete_collection(name=self.collection_name)
-            except Exception:
+            except Exception: # pylint: disable=broad-exception-caught
                 pass  # Collection might not exist
 
 
@@ -227,7 +233,7 @@ class VectorStoreFactory:
             db_path = kwargs.get('db_path', Path('assets/kb/embeddings/embeddings.db'))
             return SQLiteVectorStore(db_path)
 
-        elif backend_type.lower() == 'chroma':
+        if backend_type.lower() == 'chroma':
             collection_name = kwargs.get('collection_name', 'rag_collection')
             persist_directory = kwargs.get('persist_directory')
             chroma_client_url = kwargs.get('chroma_client_url')
@@ -241,6 +247,5 @@ class VectorStoreFactory:
                 chroma_client_url=chroma_client_url
             )
 
-        else:
-            raise ValueError(f"Unsupported vector store backend: {backend_type}. "
-                           f"Supported backends: sqlite, chroma")
+        raise ValueError(f"Unsupported vector store backend: {backend_type}. "
+                        f"Supported backends: sqlite, chroma")
