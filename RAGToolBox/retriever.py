@@ -8,13 +8,12 @@ Additionally, this script provides a CLI entry point for execution as a standalo
 """
 
 import argparse
-import os
-import time
 from typing import List, Optional
 from pathlib import Path
 import sqlite3
 import numpy as np
 import pandas as pd
+from RAGToolBox.embeddings import Embeddings
 from RAGToolBox.vector_store import VectorStoreFactory
 
 
@@ -26,12 +25,7 @@ class Retriever:
                  vector_store_backend: str = 'sqlite',
                  vector_store_config: Optional[dict] = None,
                  db_path: Path = Path('assets/kb/embeddings/embeddings.db')):
-        supported_embedding_models = ['openai', 'fastembed']
-        if embedding_model not in supported_embedding_models:
-            raise ValueError(
-                f"Unsupported embedding model: {embedding_model}. "
-                f"Embedding model must be one of: {supported_embedding_models}"
-                )
+        Embeddings.validate_embedding_model(embedding_model)
         self.embedding_model = embedding_model
         self.db_path = db_path
 
@@ -54,30 +48,9 @@ class Retriever:
         conn.close()
         return df
 
-    def _embed_query(self, query: str, max_retries: int = 5) -> np.ndarray:
+    def _embed_query(self, query: str, max_retries: int = 5) -> List[float]:
         """Method to embed the query using the embedding model"""
-        if self.embedding_model == "openai":
-            import openai
-            client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-            model = "text-embedding-3-small"
-            for attempt in range(max_retries):
-                try:
-                    response = client.embeddings.create(
-                        input=[query],
-                        model=model
-                    )
-                    return response.data[0].embedding
-                except openai.RateLimitError as _:
-                    wait_time = 2 ** attempt
-                    print(f"Rate limit hit. Retrying in {wait_time} seconds...")
-                    time.sleep(wait_time)
-            raise RuntimeError("Failed to embed after multiple retries due to rate limits.")
-        if self.embedding_model == "fastembed":
-            from fastembed import TextEmbedding
-            model = TextEmbedding()
-            embedding = list(model.embed(query))[0]
-            return embedding
-        raise ValueError(f"Embedding model '{self.embedding_model}' not supported.")
+        return Embeddings.embed_one(self.embedding_model, query, max_retries)
 
     def retrieve(self, query: str, top_k: int = 10, max_retries: int = 5) -> List[str]:
         """Method to retrieve the top k results from the knowledge base"""

@@ -168,9 +168,9 @@ def test_embed_query_fastembed_success() -> None:
         mock_model.embed.assert_called_once_with('test query')
 
         # Verify result
-        assert isinstance(result, np.ndarray)
+        assert isinstance(result, list)
         assert len(result) == 5
-        assert result.tolist() == [0.1, 0.2, 0.3, 0.4, 0.5]
+        assert result == [0.1, 0.2, 0.3, 0.4, 0.5]
 
 
 def test_embed_query_unsupported_model() -> None:
@@ -381,7 +381,7 @@ def test_retriever_empty_query() -> None:
 
     # This should work without error
     embedding = retriever._embed_query('')
-    assert isinstance(embedding, np.ndarray)
+    assert isinstance(embedding, list)
 
 
 def test_retriever_very_long_query() -> None:
@@ -390,7 +390,7 @@ def test_retriever_very_long_query() -> None:
 
     long_query = 'This is a very long query ' * 100  # 2500 characters
     embedding = retriever._embed_query(long_query)
-    assert isinstance(embedding, np.ndarray)
+    assert isinstance(embedding, list)
 
 
 def test_retriever_special_characters_query() -> None:
@@ -399,7 +399,7 @@ def test_retriever_special_characters_query() -> None:
 
     special_query = "Query with special chars: !@#$%^&*()_+-=[]{}|;':\",./<>?"
     embedding = retriever._embed_query(special_query)
-    assert isinstance(embedding, np.ndarray)
+    assert isinstance(embedding, list)
 
 
 def test_retriever_unicode_query() -> None:
@@ -408,7 +408,7 @@ def test_retriever_unicode_query() -> None:
 
     unicode_query = "Query with unicode: αβγδε 中文 español français"
     embedding = retriever._embed_query(unicode_query)
-    assert isinstance(embedding, np.ndarray)
+    assert isinstance(embedding, list)
 
 
 # =====================

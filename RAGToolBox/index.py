@@ -10,10 +10,10 @@ import argparse
 import os
 import subprocess
 import re
-import time
 from typing import Optional, List, Tuple, Dict
 from dataclasses import dataclass
 from pathlib import Path
+from RAGToolBox.embeddings import Embeddings
 from RAGToolBox.chunk import Chunker, HierarchicalChunker, SectionAwareChunker, SlidingWindowChunker
 from RAGToolBox.vector_store import VectorStoreFactory
 
@@ -42,12 +42,7 @@ class Indexer:
         self, chunker: Chunker, embedding_model: str, config: Optional[IndexerConfig] = None
         ):
         self.chunker = chunker
-        supported_embedding_models = ['openai', 'fastembed']
-        if embedding_model not in supported_embedding_models:
-            raise ValueError(
-                f"Unsupported embedding model: {embedding_model}. "
-                f"Embedding model must be one of: {supported_embedding_models}"
-                )
+        Embeddings.validate_embedding_model(embedding_model)
         self.embedding_model = embedding_model
         if config is None:
             config = IndexerConfig()
@@ -117,35 +112,14 @@ class Indexer:
         main_text = parsed['text']
         return (name, metadata, self.chunker.chunk(main_text))
 
-    def embed(self, chunks: List[str], max_retries: int = 5) -> List[list]:
+    def embed(self, chunks: List[str], max_retries: int = 5) -> List[List[float]]:
         """
         Embed a list of text chunks using the configured
         embedding model (supports batching for OpenAI).
         Retries with exponential backoff on rate limit errors.
         Returns a list of embedding vectors.
         """
-        if self.embedding_model == "openai":
-            import openai
-            client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-            model = "text-embedding-3-small"
-            for attempt in range(max_retries):
-                try:
-                    response = client.embeddings.create(
-                        input=chunks,
-                        model=model
-                    )
-                    return [d.embedding for d in response.data]
-                except openai.RateLimitError:
-                    wait_time = 2 ** attempt
-                    print(f"Rate limit hit. Retrying in {wait_time} seconds...")
-                    time.sleep(wait_time)
-            raise RuntimeError("Failed to embed after multiple retries due to rate limits.")
-        if self.embedding_model == "fastembed":
-            from fastembed import TextEmbedding
-            model = TextEmbedding()
-            embeddings = [list(model.embed(chunk))[0].tolist() for chunk in chunks]
-            return embeddings
-        raise ValueError(f"Embedding model '{self.embedding_model}' not supported.")
+        return Embeddings.embed_texts(self.embedding_model, chunks, max_retries)
 
     def _insert_embeddings_to_db(self, chunked_results: list, embeddings: list) -> None:
         """
