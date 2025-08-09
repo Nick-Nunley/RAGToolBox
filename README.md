@@ -95,7 +95,7 @@ Chunk, embed, and store your KB in one pipeline:
 ```python
 from pathlib import Path
 from RAGToolBox.chunk import SectionAwareChunker, SlidingWindowChunker, HierarchicalChunker
-from RAGToolBox.index import Indexer
+from RAGToolBox.index import Indexer, IndexerConfig
 
 chunker = HierarchicalChunker([
     SectionAwareChunker(max_chunk_size=1000, overlap=200),
@@ -104,8 +104,10 @@ chunker = HierarchicalChunker([
 indexer = Indexer(
     chunker=chunker,
     embedding_model="fastembed",          # or 'openai'
-    vector_store_backend="sqlite",       # or 'chroma'
-    vector_store_config={"db_path": Path("assets/kb/embeddings/embeddings.db")}
+    config = IndexerConfig(
+        vector_store_backend="sqlite",       # or 'chroma'
+        vector_store_config={"db_path": Path("assets/kb/embeddings/embeddings.db")}
+    )
 )
 indexer.index(chunked_results)
 ```

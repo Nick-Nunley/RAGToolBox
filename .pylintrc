@@ -1,0 +1,7 @@
+[BASIC]
+module-rgx=^([a-z_][a-z0-9_]*|[A-Z][A-Za-z0-9]+)$
+
+[MESSAGES CONTROL]
+disable =
+    import-outside-toplevel,
+    too-few-public-methods

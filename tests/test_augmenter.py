@@ -1,6 +1,10 @@
-import pytest
+"""Tests associated with Augmenter module"""
+# pylint: disable=protected-access
+# pylint: disable=unused-import
+
 import os
 from unittest.mock import patch, MagicMock, Mock
+import pytest
 
 # Check for optional dependencies
 try:
@@ -50,16 +54,16 @@ def test_initialize_api_client_success():
     with patch('huggingface_hub.InferenceClient') as mock_client_class:
         mock_client = MagicMock()
         mock_client_class.return_value = mock_client
-        
+
         # Create augmenter without calling _initialize_api_client in __init__
         augmenter = Augmenter.__new__(Augmenter)
         augmenter.model_name = "google/gemma-2-2b-it"
         augmenter.api_key = "test_key"
         augmenter.use_local = False
-        
+
         # Now call the method we want to test
         augmenter._initialize_api_client()
-        
+
         mock_client_class.assert_called_once_with(token="test_key")
         assert augmenter.client == mock_client
 
@@ -72,7 +76,7 @@ def test_initialize_api_client_import_error():
         augmenter.model_name = "google/gemma-2-2b-it"
         augmenter.api_key = "test_key"
         augmenter.use_local = False
-        
+
         with pytest.raises(ImportError, match="huggingface_hub package is required"):
             augmenter._initialize_api_client()
 
@@ -85,63 +89,69 @@ def test_initialize_api_client_runtime_error():
         augmenter.model_name = "google/gemma-2-2b-it"
         augmenter.api_key = "test_key"
         augmenter.use_local = False
-        
+
         with pytest.raises(RuntimeError, match="Error initializing Hugging Face client"):
             augmenter._initialize_api_client()
 
 
-@pytest.mark.skipif(not TRANSFORMERS_AVAILABLE, reason="transformers and torch packages not available")
+@pytest.mark.skipif(
+    not TRANSFORMERS_AVAILABLE, reason="transformers and torch packages not available"
+    )
 def test_initialize_local_model_success():
     """Test successful local model initialization."""
     with patch('transformers.AutoTokenizer') as mock_tokenizer_class, \
          patch('transformers.AutoModelForCausalLM') as mock_model_class:
-        
+
         mock_tokenizer = MagicMock()
         mock_tokenizer.pad_token = None
         mock_tokenizer.eos_token = "<eos>"
         mock_tokenizer_class.from_pretrained.return_value = mock_tokenizer
-        
+
         mock_model = MagicMock()
         mock_model_class.from_pretrained.return_value = mock_model
-        
+
         # Create augmenter without calling _initialize_local_model in __init__
         augmenter = Augmenter.__new__(Augmenter)
         augmenter.model_name = "google/gemma-2-2b-it"
         augmenter.api_key = None
         augmenter.use_local = True
-        
+
         augmenter._initialize_local_model()
-        
+
         assert augmenter.tokenizer == mock_tokenizer
         assert augmenter.model == mock_model
         assert mock_tokenizer.pad_token == "<eos>"
 
 
-@pytest.mark.skipif(not TRANSFORMERS_AVAILABLE, reason="transformers and torch packages not available")
+@pytest.mark.skipif(
+    not TRANSFORMERS_AVAILABLE, reason="transformers and torch packages not available"
+    )
 def test_initialize_local_model_with_pad_token():
     """Test local model initialization when pad_token already exists."""
     with patch('transformers.AutoTokenizer') as mock_tokenizer_class, \
          patch('transformers.AutoModelForCausalLM') as mock_model_class:
-        
+
         mock_tokenizer = MagicMock()
         mock_tokenizer.pad_token = "<pad>"  # Already set
         mock_tokenizer_class.from_pretrained.return_value = mock_tokenizer
-        
+
         mock_model = MagicMock()
         mock_model_class.from_pretrained.return_value = mock_model
-        
+
         # Create augmenter without calling _initialize_local_model in __init__
         augmenter = Augmenter.__new__(Augmenter)
         augmenter.model_name = "google/gemma-2-2b-it"
         augmenter.api_key = None
         augmenter.use_local = True
-        
+
         augmenter._initialize_local_model()
-        
+
         assert augmenter.tokenizer.pad_token == "<pad>"  # Should remain unchanged
 
 
-@pytest.mark.skipif(not TRANSFORMERS_AVAILABLE, reason="transformers and torch packages not available")
+@pytest.mark.skipif(
+    not TRANSFORMERS_AVAILABLE, reason="transformers and torch packages not available"
+    )
 def test_initialize_local_model_import_error():
     """Test local model initialization with missing dependency."""
     with patch('transformers.AutoTokenizer', side_effect=ImportError("No module")):
@@ -150,12 +160,14 @@ def test_initialize_local_model_import_error():
         augmenter.model_name = "google/gemma-2-2b-it"
         augmenter.api_key = None
         augmenter.use_local = True
-        
+
         with pytest.raises(ImportError, match="Transformers package is required"):
             augmenter._initialize_local_model()
 
 
-@pytest.mark.skipif(not TRANSFORMERS_AVAILABLE, reason="transformers and torch packages not available")
+@pytest.mark.skipif(
+    not TRANSFORMERS_AVAILABLE, reason="transformers and torch packages not available"
+    )
 def test_initialize_local_model_runtime_error():
     """Test local model initialization with runtime error."""
     with patch('transformers.AutoTokenizer', side_effect=Exception("Model Error")):
@@ -164,7 +176,7 @@ def test_initialize_local_model_runtime_error():
         augmenter.model_name = "google/gemma-2-2b-it"
         augmenter.api_key = None
         augmenter.use_local = True
-        
+
         with pytest.raises(RuntimeError, match="Error loading model"):
             augmenter._initialize_local_model()
 
@@ -173,10 +185,13 @@ def test_format_prompt():
     """Test prompt formatting with retrieved chunks."""
     augmenter = Augmenter()
     query = "What is LIFU?"
-    chunks = [{"data": "LIFU is a therapeutic technique.", "metadata": {}}, {"data": "It uses focused ultrasound.", "metadata": {}}]
-    
+    chunks = [
+        {"data": "LIFU is a therapeutic technique.", "metadata": {}},
+        {"data": "It uses focused ultrasound.", "metadata": {}}
+        ]
+
     prompt = augmenter._format_prompt(query, chunks)
-    
+
     assert "Context 1: LIFU is a therapeutic technique." in prompt
     assert "Context 2: It uses focused ultrasound." in prompt
     assert "Question: What is LIFU?" in prompt
@@ -188,91 +203,97 @@ def test_format_prompt_empty_chunks():
     augmenter = Augmenter()
     query = "What is LIFU?"
     chunks = []
-    
+
     prompt = augmenter._format_prompt(query, chunks)
-    
+
     assert "Context:" in prompt
     assert "Question: What is LIFU?" in prompt
     assert "Answer:" in prompt
 
 
-@pytest.mark.skipif(not TRANSFORMERS_AVAILABLE, reason="transformers and torch packages not available")
+@pytest.mark.skipif(
+    not TRANSFORMERS_AVAILABLE, reason="transformers and torch packages not available"
+    )
 def test_call_local_model():
     """Test local model inference."""
     with patch('transformers.AutoTokenizer') as mock_tokenizer_class, \
          patch('transformers.AutoModelForCausalLM') as mock_model_class, \
          patch('torch.no_grad') as mock_no_grad:
-        
+
         # Setup mocks
         mock_tokenizer = MagicMock()
         mock_tokenizer.encode.return_value = MagicMock(shape=[1, 10])
         mock_tokenizer.decode.return_value = "Input prompt Generated response"
         mock_tokenizer.eos_token_id = 2
         mock_tokenizer_class.from_pretrained.return_value = mock_tokenizer
-        
+
         mock_model = MagicMock()
         mock_outputs = MagicMock()
         mock_outputs[0] = MagicMock()
         mock_model.generate.return_value = mock_outputs
         mock_model_class.from_pretrained.return_value = mock_model
-        
+
         mock_no_grad.return_value.__enter__ = Mock()
         mock_no_grad.return_value.__exit__ = Mock(return_value=None)
-        
+
         augmenter = Augmenter(use_local=True)
         augmenter.tokenizer = mock_tokenizer
         augmenter.model = mock_model
-        
+
         prompt = "Test prompt"
         result = augmenter._call_local_model(prompt)
-        
+
         assert result == "Generated response"
         mock_tokenizer.encode.assert_called_once()
         mock_model.generate.assert_called_once()
 
 
-@pytest.mark.skipif(not TRANSFORMERS_AVAILABLE, reason="transformers and torch packages not available")
+@pytest.mark.skipif(
+    not TRANSFORMERS_AVAILABLE, reason="transformers and torch packages not available"
+    )
 def test_call_local_model_empty_response():
     """Test local model inference with empty response."""
     with patch('transformers.AutoTokenizer') as mock_tokenizer_class, \
          patch('transformers.AutoModelForCausalLM') as mock_model_class, \
          patch('torch.no_grad') as mock_no_grad:
-        
+
         mock_tokenizer = MagicMock()
         mock_tokenizer.encode.return_value = MagicMock(shape=[1, 10])
         mock_tokenizer.decode.return_value = "Input prompt"  # No generated content
         mock_tokenizer.eos_token_id = 2
         mock_tokenizer_class.from_pretrained.return_value = mock_tokenizer
-        
+
         mock_model = MagicMock()
         mock_outputs = MagicMock()
         mock_outputs[0] = MagicMock()
         mock_model.generate.return_value = mock_outputs
         mock_model_class.from_pretrained.return_value = mock_model
-        
+
         mock_no_grad.return_value.__enter__ = Mock()
         mock_no_grad.return_value.__exit__ = Mock(return_value=None)
-        
+
         augmenter = Augmenter(use_local=True)
         augmenter.tokenizer = mock_tokenizer
         augmenter.model = mock_model
-        
+
         prompt = "Test prompt"
         result = augmenter._call_local_model(prompt)
-        
+
         assert result == "I don't have enough information to provide a detailed answer."
 
 
-@pytest.mark.skipif(not TRANSFORMERS_AVAILABLE, reason="transformers and torch packages not available")
+@pytest.mark.skipif(
+    not TRANSFORMERS_AVAILABLE, reason="transformers and torch packages not available"
+    )
 def test_call_local_model_exception():
     """Test local model inference with exception."""
     augmenter = Augmenter(use_local=True)
     augmenter.tokenizer = MagicMock()
     augmenter.model = MagicMock()
-    
+
     # Mock tokenizer to raise exception
     augmenter.tokenizer.encode.side_effect = Exception("Tokenization error")
-    
+
     with pytest.raises(RuntimeError, match="Error calling local model"):
         augmenter._call_local_model("test prompt")
 
@@ -289,13 +310,13 @@ def test_call_huggingface_api_success():
         mock_completion.choices = [mock_choice]
         mock_client.chat.completions.create.return_value = mock_completion
         mock_client_class.return_value = mock_client
-        
+
         augmenter = Augmenter(api_key="test_key")
         augmenter.client = mock_client
-        
+
         prompt = "Test prompt"
         result = augmenter._call_huggingface_api(prompt)
-        
+
         assert result == "Generated response"
         mock_client.chat.completions.create.assert_called_once()
 
@@ -306,10 +327,10 @@ def test_call_huggingface_api_model_not_found():
         mock_client = MagicMock()
         mock_client.chat.completions.create.side_effect = Exception("404 Not Found")
         mock_client_class.return_value = mock_client
-        
+
         augmenter = Augmenter(api_key="test_key")
         augmenter.client = mock_client
-        
+
         with pytest.raises(RuntimeError, match="Model 'google/gemma-2-2b-it' is not available"):
             augmenter._call_huggingface_api("test prompt")
 
@@ -320,10 +341,10 @@ def test_call_huggingface_api_authentication_error():
         mock_client = MagicMock()
         mock_client.chat.completions.create.side_effect = Exception("Authentication failed")
         mock_client_class.return_value = mock_client
-        
+
         augmenter = Augmenter(api_key="test_key")
         augmenter.client = mock_client
-        
+
         with pytest.raises(RuntimeError, match="Authentication error"):
             augmenter._call_huggingface_api("test prompt")
 
@@ -334,23 +355,25 @@ def test_call_huggingface_api_generic_error():
         mock_client = MagicMock()
         mock_client.chat.completions.create.side_effect = Exception("Generic API error")
         mock_client_class.return_value = mock_client
-        
+
         augmenter = Augmenter(api_key="test_key")
         augmenter.client = mock_client
-        
+
         with pytest.raises(RuntimeError, match="Error calling Hugging Face API"):
             augmenter._call_huggingface_api("test prompt")
 
 
-@pytest.mark.skipif(not TRANSFORMERS_AVAILABLE, reason="transformers and torch packages not available")
+@pytest.mark.skipif(
+    not TRANSFORMERS_AVAILABLE, reason="transformers and torch packages not available"
+    )
 def test_call_llm_local():
     """Test LLM call routing to local model."""
     with patch.object(Augmenter, '_call_local_model') as mock_local:
         mock_local.return_value = "Local response"
-        
+
         augmenter = Augmenter(use_local=True)
         result = augmenter._call_llm("test prompt")
-        
+
         assert result == "Local response"
         mock_local.assert_called_once_with("test prompt", 0.25, 200)
 
@@ -359,10 +382,10 @@ def test_call_llm_api():
     """Test LLM call routing to API."""
     with patch.object(Augmenter, '_call_huggingface_api') as mock_api:
         mock_api.return_value = "API response"
-        
+
         augmenter = Augmenter(use_local=False)
         result = augmenter._call_llm("test prompt")
-        
+
         assert result == "API response"
         mock_api.assert_called_once_with("test prompt", 0.25, 200)
 
@@ -371,16 +394,16 @@ def test_generate_response_with_chunks():
     """Test response generation with retrieved chunks."""
     with patch.object(Augmenter, '_format_prompt') as mock_format, \
          patch.object(Augmenter, '_call_llm') as mock_call:
-        
+
         mock_format.return_value = "Formatted prompt"
         mock_call.return_value = "Generated answer"
-        
+
         augmenter = Augmenter()
         query = "What is LIFU?"
         chunks = [{"data": "LIFU is a therapeutic technique.", "metadata": {}}]
-        
+
         result = augmenter.generate_response(query, chunks)
-        
+
         assert result == "Generated answer"
         mock_format.assert_called_once_with(query, chunks)
         mock_call.assert_called_once_with("Formatted prompt", 0.25, 200)
@@ -391,23 +414,24 @@ def test_generate_response_empty_chunks():
     augmenter = Augmenter()
     query = "What is LIFU?"
     chunks = []
-    
+
     result = augmenter.generate_response(query, chunks)
-    
-    assert result == "I don't have enough information to answer your question. Please try rephrasing or expanding your query."
+
+    assert result == "I don't have enough information to answer your question. " + \
+    "Please try rephrasing or expanding your query."
 
 
 def test_generate_response_with_sources():
     """Test response generation with source information."""
     with patch.object(Augmenter, 'generate_response') as mock_generate:
         mock_generate.return_value = "Generated answer"
-        
+
         augmenter = Augmenter()
         query = "What is LIFU?"
         chunks = [{"data": "Chunk 1", "metadata": {}}, {"data": "Chunk 2", "metadata": {}}]
-        
+
         result = augmenter.generate_response_with_sources(query, chunks)
-        
+
         expected = {
             "response": "Generated answer",
             "sources": [{"data": "Chunk 1", "metadata": {}}, {"data": "Chunk 2", "metadata": {}}],
@@ -431,60 +455,63 @@ def test_full_augmenter_workflow_api():
         mock_completion = MagicMock()
         mock_choice = MagicMock()
         mock_message = MagicMock()
-        mock_message.content = "LIFU (Low-Intensity Focused Ultrasound) is a therapeutic technique that uses focused ultrasound waves."
+        mock_message.content = "LIFU (Low-Intensity Focused Ultrasound) " + \
+        "is a therapeutic technique that uses focused ultrasound waves."
         mock_choice.message = mock_message
         mock_completion.choices = [mock_choice]
         mock_client.chat.completions.create.return_value = mock_completion
         mock_client_class.return_value = mock_client
-        
+
         augmenter = Augmenter(api_key="test_key")
         augmenter.client = mock_client
-        
+
         query = "What is LIFU?"
         chunks = [
             {"data": "LIFU stands for Low-Intensity Focused Ultrasound.", "metadata": {}},
             {"data": "It is a therapeutic technique used in medical applications.", "metadata": {}}
         ]
-        
+
         result = augmenter.generate_response(query, chunks)
-        
+
         assert "LIFU" in result
         assert "therapeutic" in result.lower()
         mock_client.chat.completions.create.assert_called_once()
 
 
-@pytest.mark.skipif(not TRANSFORMERS_AVAILABLE, reason="transformers and torch packages not available")
+@pytest.mark.skipif(
+    not TRANSFORMERS_AVAILABLE, reason="transformers and torch packages not available"
+    )
 def test_full_augmenter_workflow_local():
     """Test complete augmenter workflow using local model."""
     with patch('transformers.AutoTokenizer') as mock_tokenizer_class, \
          patch('transformers.AutoModelForCausalLM') as mock_model_class, \
          patch('torch.no_grad') as mock_no_grad:
-        
+
         # Setup mocks
         mock_tokenizer = MagicMock()
         mock_tokenizer.encode.return_value = MagicMock(shape=[1, 10])
         mock_tokenizer.decode.return_value = "Formatted prompt LIFU is a therapeutic technique."
         mock_tokenizer.eos_token_id = 2
         mock_tokenizer_class.from_pretrained.return_value = mock_tokenizer
-        
+
         mock_model = MagicMock()
         mock_outputs = MagicMock()
         mock_outputs[0] = MagicMock()
         mock_model.generate.return_value = mock_outputs
         mock_model_class.from_pretrained.return_value = mock_model
-        
+
         mock_no_grad.return_value.__enter__ = Mock()
         mock_no_grad.return_value.__exit__ = Mock(return_value=None)
-        
+
         augmenter = Augmenter(use_local=True)
         augmenter.tokenizer = mock_tokenizer
         augmenter.model = mock_model
-        
+
         query = "What is LIFU?"
         chunks = [{"data": "LIFU is a therapeutic technique.", "metadata": {}}]
-        
+
         result = augmenter.generate_response(query, chunks)
-        
+
         assert "LIFU is a therapeutic technique" in result
         mock_tokenizer.encode.assert_called_once()
         mock_model.generate.assert_called_once()
@@ -497,26 +524,38 @@ def test_augmenter_with_retriever_integration():
         mock_completion = MagicMock()
         mock_choice = MagicMock()
         mock_message = MagicMock()
-        mock_message.content = "Based on the context, LIFU and LIPUS are related but different techniques."
+        mock_message.content = "Based on the context, LIFU and " + \
+        "LIPUS are related but different techniques."
         mock_choice.message = mock_message
         mock_completion.choices = [mock_choice]
         mock_client.chat.completions.create.return_value = mock_completion
         mock_client_class.return_value = mock_client
-        
+
         augmenter = Augmenter(api_key="test_key")
         augmenter.client = mock_client
-        
+
         # Simulate retrieved chunks from retriever
         query = "Is LIPUS the same thing as LIFU?"
         retrieved_chunks = [
-            {"data": "LIFU (Low-Intensity Focused Ultrasound) uses focused ultrasound waves.", "metadata": {}},
-            {"data": "LIPUS (Low-Intensity Pulsed Ultrasound) uses pulsed ultrasound waves.", "metadata": {}},
-            {"data": "Both techniques are used for therapeutic purposes but have different mechanisms.", "metadata": {}}
+            {
+                "data": "LIFU (Low-Intensity Focused Ultrasound) uses focused ultrasound waves.",
+                "metadata": {}
+                },
+            {
+                "data": "LIPUS (Low-Intensity Pulsed Ultrasound) uses pulsed ultrasound waves.",
+                "metadata": {}
+                },
+            {
+                "data": "Both techniques are used for therapeutic purposes " + \
+                "but have different mechanisms.",
+                "metadata": {}
+                }
         ]
-        
+
         result = augmenter.generate_response_with_sources(query, retrieved_chunks)
-        
-        assert result["response"] == "Based on the context, LIFU and LIPUS are related but different techniques."
+
+        assert result["response"] == "Based on the context, LIFU and LIPUS are " + \
+        "related but different techniques."
         assert result["num_sources"] == 3
         assert result["query"] == query
         assert len(result["sources"]) == 3
@@ -530,13 +569,13 @@ def test_augmenter_error_handling():
         mock_client = MagicMock()
         mock_client.chat.completions.create.side_effect = Exception("API rate limit exceeded")
         mock_client_class.return_value = mock_client
-        
+
         augmenter = Augmenter(api_key="test_key")
         augmenter.client = mock_client
-        
+
         query = "What is LIFU?"
         chunks = [{"data": "LIFU is a therapeutic technique.", "metadata": {}}]
-        
+
         with pytest.raises(RuntimeError, match="Error calling Hugging Face API"):
             augmenter.generate_response(query, chunks)
 
@@ -547,7 +586,7 @@ def test_augmenter_environment_variable_handling():
         'HUGGINGFACE_API_KEY': 'env_test_key',
         'MODEL_NAME': 'test/model'
     }
-    
+
     with patch.dict(os.environ, test_env, clear=True):
         augmenter = Augmenter()
         assert augmenter.api_key == 'env_test_key'
@@ -566,19 +605,19 @@ def test_augmenter_custom_parameters():
         mock_completion.choices = [mock_choice]
         mock_client.chat.completions.create.return_value = mock_completion
         mock_client_class.return_value = mock_client
-        
+
         augmenter = Augmenter(
             model_name="custom/model",
             api_key="custom_key",
             use_local=False
         )
         augmenter.client = mock_client
-        
+
         query = "Test query"
         chunks = [{"data": "Test chunk", "metadata": {}}]
-        
+
         result = augmenter.generate_response(query, chunks)
-        
+
         assert result == "Custom model response"
         # Verify the custom model name was used in the API call
         call_args = mock_client.chat.completions.create.call_args

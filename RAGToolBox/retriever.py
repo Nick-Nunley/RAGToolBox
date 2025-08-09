@@ -1,11 +1,19 @@
+"""
+RAGToolBox Retriever module.
+
+Provides the Retriever class for performing similarity search against
+a user query for obtaining semantically similar context.
+
+Additionally, this script provides a CLI entry point for execution as a standalone python module.
+"""
+
 import argparse
-import os
-import time
 from typing import List, Optional
 from pathlib import Path
+import sqlite3
 import numpy as np
 import pandas as pd
-import sqlite3
+from RAGToolBox.embeddings import Embeddings
 from RAGToolBox.vector_store import VectorStoreFactory
 
 
@@ -13,24 +21,22 @@ from RAGToolBox.vector_store import VectorStoreFactory
 class Retriever:
     """Retriever class for retrieving relevant chunks from the knowledge base"""
 
-    def __init__(self, embedding_model: str, 
-                 vector_store_backend: str = 'sqlite', 
+    def __init__(self, embedding_model: str,
+                 vector_store_backend: str = 'sqlite',
                  vector_store_config: Optional[dict] = None,
                  db_path: Path = Path('assets/kb/embeddings/embeddings.db')):
-        supported_embedding_models = ['openai', 'fastembed']
-        if embedding_model not in supported_embedding_models:
-            raise ValueError(f"Unsupported embedding model: {embedding_model}. Embedding model must be one of: {supported_embedding_models}")
+        Embeddings.validate_embedding_model(embedding_model)
         self.embedding_model = embedding_model
         self.db_path = db_path
-        
+
         # Initialize vector store backend
         self.vector_store_config = vector_store_config or {}
         if vector_store_backend == 'sqlite':
             # For SQLite, use the db_path to determine vector store path
             self.vector_store_config['db_path'] = self.db_path
-        
+
         self.vector_store = VectorStoreFactory.create_backend(
-            vector_store_backend, 
+            vector_store_backend,
             **self.vector_store_config
         )
         self.vector_store.initialize()
@@ -42,41 +48,20 @@ class Retriever:
         conn.close()
         return df
 
-    def _embed_query(self, query: str, max_retries: int = 5) -> np.ndarray:
+    def _embed_query(self, query: str, max_retries: int = 5) -> List[float]:
         """Method to embed the query using the embedding model"""
-        if self.embedding_model == "openai":
-            import openai
-            client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-            model = "text-embedding-3-small"
-            for attempt in range(max_retries):
-                try:
-                    response = client.embeddings.create(
-                        input=[query],
-                        model=model
-                    )
-                    return response.data[0].embedding
-                except openai.RateLimitError as e:
-                    wait_time = 2 ** attempt
-                    print(f"Rate limit hit. Retrying in {wait_time} seconds...")
-                    time.sleep(wait_time)
-            raise RuntimeError("Failed to embed after multiple retries due to rate limits.")
-        elif self.embedding_model == "fastembed":
-            from fastembed import TextEmbedding
-            model = TextEmbedding()
-            embedding = list(model.embed(query))[0]
-            return embedding
-        raise ValueError(f"Embedding model '{self.embedding_model}' not supported.")
+        return Embeddings.embed_one(self.embedding_model, query, max_retries)
 
     def retrieve(self, query: str, top_k: int = 10, max_retries: int = 5) -> List[str]:
         """Method to retrieve the top k results from the knowledge base"""
         query_embedding = self._embed_query(query=query, max_retries=max_retries)
-        
+
         # Get all embeddings from vector store
         embeddings_data = self.vector_store.get_all_embeddings()
-        
+
         if not embeddings_data:
             return []
-        
+
         # Calculate similarities
         similarities = []
         for item in embeddings_data:
@@ -86,7 +71,10 @@ class Retriever:
 
         # Sort by similarity and return top_k chunks
         similarities.sort(key=lambda x: x[0], reverse=True)
-        return [{'data': chunk, 'metadata': metadata} for _, chunk, metadata in similarities[:top_k]]
+        return [
+            {'data': chunk, 'metadata': metadata}
+            for _, chunk, metadata in similarities[:top_k]
+            ]
 
 
 if __name__ == "__main__":
@@ -100,7 +88,7 @@ if __name__ == "__main__":
         type = str,
         help = 'User query to use for retrieval from knowledge base'
         )
-    
+
     parser.add_argument(
         '--embedding-model',
         '-e',
@@ -108,13 +96,27 @@ if __name__ == "__main__":
         type = str,
         help = 'Embedding model to use'
         )
-    
+
     parser.add_argument(
         '--db-path',
         '-d',
         default = 'assets/kb/embeddings/embeddings.db',
         type = Path,
         help = 'Path to the database'
+        )
+
+    parser.add_argument(
+        '--top-k',
+        default = 10,
+        type = int,
+        help = 'Number of similar chunks to retrieve'
+        )
+
+    parser.add_argument(
+        '--max-retries',
+        default = 5,
+        type = int,
+        help = 'Number of times to tries to attempt reaching remote embedding model'
         )
 
     args = parser.parse_args()
@@ -124,5 +126,4 @@ if __name__ == "__main__":
         db_path = args.db_path
         )
 
-    query = args.query
-    embedding = reriever._embed_query(query)
+    context = reriever.retrieve(args.query, args.top_k, args.max_retries)

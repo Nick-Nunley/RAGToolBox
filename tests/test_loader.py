@@ -1,9 +1,11 @@
+"""Tests associated with Loader module"""
+
 import os
+from typing import Any
 import pytest
 import requests
 import pdfplumber
 from Bio import Entrez
-from typing import Any
 
 from RAGToolBox.loader import (
     BaseLoader,
@@ -16,12 +18,15 @@ from RAGToolBox.loader import (
 
 # Helpers and Mocks
 class DummyPage:
+    """Mock page class"""
     def __init__(self, text: str) -> None:
         self._text = text
     def extract_text(self) -> str:
+        """Method to return page 'content'"""
         return self._text
 
 class DummyPDF:
+    """Mock PDF class"""
     def __init__(self, pages: list) -> None:
         self.pages = pages
     def __enter__(self) -> 'DummyPDF':
@@ -30,57 +35,69 @@ class DummyPDF:
         return False
 
 class DummyResponse:
+    """Mock response"""
     def __init__(self, content: bytes, status_code: int = 200) -> None:
         self.content = content
         self.status_code = status_code
     def raise_for_status(self) -> None:
+        """Method to mock a raise status error"""
         if self.status_code != 200:
             raise requests.HTTPError(f"Status code: {self.status_code}")
 
 class DummyHandle:
+    """Mock page handles"""
     def __init__(self, text: bytes) -> None:
         self._text = text
     def read(self) -> bytes:
+        """Method to read bytes"""
         return self._text
     def close(self) -> None:
-        pass
+        """Method to 'close' file"""
 
 
 # Unit tests
 def test_detect_loader_txt() -> None:
+    """Test detect_loader detects .txt extension"""
     cls = BaseLoader.detect_loader('http://example.com/file.txt', b'hello')
     assert cls is TextLoader
 
 def test_detect_loader_md() -> None:
+    """Test detect_loader detects .md extension"""
     cls = BaseLoader.detect_loader('http://example.com/file.md', b'')
     assert cls is TextLoader
 
 def test_detect_loader_html() -> None:
+    """Test detect_loader detects .html extension"""
     cls = BaseLoader.detect_loader('http://example.com/index.html', b'<html>')
     assert cls is HTMLLoader
 
 def test_detect_loader_pdf() -> None:
+    """Test detect_loader detects .pdf extension"""
     cls = BaseLoader.detect_loader('http://example.com/doc.pdf', b'%PDF')
     assert cls is PDFLoader
 
 def test_detect_loader_unknown() -> None:
+    """Test detect_loader passes unknown file formats to UnknownLoader"""
     cls = BaseLoader.detect_loader('http://example.com/archive.zip', b'PK')
     assert cls is UnknownLoader
 
 def test_detect_loader_ncbi() -> None:
+    """Test detect_loader detects a PMC URL"""
     url = 'https://pmc.ncbi.nlm.nih.gov/articles/PMC123456/'
     cls = BaseLoader.detect_loader(url, b'ignored')
     assert cls is NCBILoader
 
 def test_detect_loader_local_txt() -> None:
+    """Test detect_loader handles a local .txt filepath"""
     # Mock file existence check
     original_exists = os.path.exists
-    
+
     def mock_exists(path: str) -> bool:
+        """Function to check for existence of a mock file"""
         if path == '/path/to/file.txt':
             return True
         return original_exists(path)
-    
+
     # Temporarily replace os.path.exists
     os.path.exists = mock_exists
     try:
@@ -90,14 +107,16 @@ def test_detect_loader_local_txt() -> None:
         os.path.exists = original_exists
 
 def test_detect_loader_local_pdf() -> None:
+    """Test detect_loader handles a local .pdf filepath"""
     # Mock file existence check
     original_exists = os.path.exists
-    
+
     def mock_exists(path: str) -> bool:
+        """Function to check for existence of a mock PDF"""
         if path == '/path/to/document.pdf':
             return True
         return original_exists(path)
-    
+
     # Temporarily replace os.path.exists
     os.path.exists = mock_exists
     try:
@@ -107,14 +126,16 @@ def test_detect_loader_local_pdf() -> None:
         os.path.exists = original_exists
 
 def test_detect_loader_local_html() -> None:
+    """Test detect_loader handles a local .html filepath"""
     # Mock file existence check
     original_exists = os.path.exists
-    
+
     def mock_exists(path: str) -> bool:
+        """Function to check for existence of a mock HTML file"""
         if path == '/path/to/page.html':
             return True
         return original_exists(path)
-    
+
     # Temporarily replace os.path.exists
     os.path.exists = mock_exists
     try:
@@ -124,8 +145,12 @@ def test_detect_loader_local_html() -> None:
         os.path.exists = original_exists
 
 def test_ncbi_loader_fetch_success(monkeypatch: Any) -> None:
+    """Test NCBILoader fetches properly"""
     calls = []
-    def dummy_efetch(db: str, id: str, rettype: str, retmode: str) -> DummyHandle:
+    def dummy_efetch(
+        db: str, id: str, rettype: str, retmode: str # pylint: disable=redefined-builtin
+        ) -> DummyHandle:
+        """Mock fetch function for Entrez.efetch"""
         calls.append((db, id, rettype, retmode))
         # Minimal valid PMC XML with an abstract
         xml = b'<?xml version="1.0"?><article><abstract>Abstract text</abstract></article>'
@@ -143,8 +168,12 @@ def test_ncbi_loader_fetch_success(monkeypatch: Any) -> None:
     assert calls[0] == ('pmc', 'PMC999999', 'full', 'xml')
 
 def test_ncbi_loader_fetch_failure(monkeypatch: Any) -> None:
-    def dummy_efetch(db: str, id: str, rettype: str, retmode: str) -> None:
-        raise Exception('NCBI down')
+    """Test NCBILoader raises RuntimeError for broken PMC URL"""
+    def dummy_efetch(
+        db: str, id: str, rettype: str, retmode: str # pylint: disable=redefined-builtin
+        ) -> None:
+        """Mock fetch function to return down status"""
+        raise Exception('NCBI down') # pylint: disable=broad-exception-raised
     monkeypatch.setattr(Entrez, 'efetch', dummy_efetch)
 
     url = 'https://pmc.ncbi.nlm.nih.gov/articles/PMC000000/'
@@ -154,12 +183,14 @@ def test_ncbi_loader_fetch_failure(monkeypatch: Any) -> None:
     assert 'Entrez fetch failed for PMC000000' in str(exc.value)
 
 def test_text_loader_convert() -> None:
+    """Test TextLoader.convert handles simple strings"""
     tr = TextLoader('http://example.com/test.txt', 'out')
     tr.raw_content = 'Hello, World!'.encode('utf-8')
     tr.convert()
     assert tr.text == 'Hello, World!'
 
 def test_html_loader_convert() -> None:
+    """Test HTMLLoader extracts content out of HTML tags"""
     html = '<html><body><h1>Hi</h1><p>Para</p></body></html>'
     hr = HTMLLoader('http://example.com/index.html', 'out')
     hr.raw_content = html.encode('utf-8')
@@ -169,6 +200,7 @@ def test_html_loader_convert() -> None:
     assert 'Para' in hr.text
 
 def test_html_loader_navigablestring_markdown() -> None:
+    """Test HTMLLoader implements NavigableString properly"""
     html = b"""
     <html>
       <head><title>Test</title></head>
@@ -207,6 +239,7 @@ def test_html_loader_navigablestring_markdown() -> None:
         assert f"- Item {i}" in output
 
 def test_pdf_loader_convert(monkeypatch: Any) -> None:
+    """Test PDFLoader.convert works"""
     # Mock pdfplumber.open to return DummyPDF with pages
     pages = [DummyPage('Page1'), DummyPage('Page2')]
     monkeypatch.setattr(pdfplumber, 'open', lambda _: DummyPDF(pages))
@@ -217,6 +250,7 @@ def test_pdf_loader_convert(monkeypatch: Any) -> None:
     assert 'Page2' in pr.text
 
 def test_unknown_loader_convert(capsys: Any) -> None:
+    """Smokescreen test for UnknownLoader.convert method"""
     ur = UnknownLoader('http://example.com/file.xyz', 'out')
     ur.raw_content = b''
     ur.convert()
@@ -225,6 +259,7 @@ def test_unknown_loader_convert(capsys: Any) -> None:
     assert ur.text == ''
 
 def test_save(tmp_path: Any) -> None:
+    """Test TextLoader.save method works"""
     tr = TextLoader('http://example.com/one.txt', tmp_path)
     tr.text = 'TestSave'
     tr.save()
@@ -234,8 +269,13 @@ def test_save(tmp_path: Any) -> None:
 
 # Integration tests
 def test_full_process_text(monkeypatch: Any, tmp_path: Any) -> None:
+    """Full test of loading process with TextLoader"""
     # Mock requests.get for a TXT URL
-    monkeypatch.setattr(requests, 'get', lambda url: DummyResponse(b'Some text content'))
+    monkeypatch.setattr(
+        requests,
+        'get',
+        lambda url, timeout=None: DummyResponse(b'Some text content')
+        )
     url = 'http://example.com/data.txt'
 
     LoaderClass = BaseLoader.detect_loader(url, b'some')
@@ -247,8 +287,13 @@ def test_full_process_text(monkeypatch: Any, tmp_path: Any) -> None:
     assert 'Some text content' in out_file.read_text(encoding='utf-8')
 
 def test_full_process_html(monkeypatch: Any, tmp_path: Any) -> None:
+    """Full test of loading process with HTMLLoader"""
     html = '<html><body><p>Hello HTML</p></body></html>'
-    monkeypatch.setattr(requests, 'get', lambda url: DummyResponse(html.encode('utf-8')))
+    monkeypatch.setattr(
+        requests,
+        'get',
+        lambda url, timeout=None: DummyResponse(html.encode('utf-8'))
+        )
     url = 'http://example.com/page.html'
 
     LoaderClass = BaseLoader.detect_loader(url, html.encode('utf-8'))
@@ -260,8 +305,13 @@ def test_full_process_html(monkeypatch: Any, tmp_path: Any) -> None:
     assert 'Hello HTML' in out_file.read_text(encoding='utf-8')
 
 def test_full_process_pdf(monkeypatch: Any, tmp_path: Any) -> None:
+    """Full test of loading process with PDFLoader"""
     # Mock requests.get and pdfplumber.open
-    monkeypatch.setattr(requests, 'get', lambda url: DummyResponse(b'%PDF dummy content'))
+    monkeypatch.setattr(
+        requests,
+        'get',
+        lambda url, timeout=None: DummyResponse(b'%PDF dummy content')
+        )
     pages = [DummyPage('X'), DummyPage('Y')]
     monkeypatch.setattr(pdfplumber, 'open', lambda _: DummyPDF(pages))
 
@@ -277,14 +327,9 @@ def test_full_process_pdf(monkeypatch: Any, tmp_path: Any) -> None:
     assert 'Y' in text
 
 def test_full_process_pmc(monkeypatch: Any, tmp_path: Any) -> None:
-    # Monkeypatch efetch to return dummy PMC XML with an abstract
-    class DummyHandle2:
-        def __init__(self, text: bytes) -> None: self._text = text
-        def read(self) -> bytes: return self._text
-        def close(self) -> None: pass
-
+    """Full test of loading process with PMC article"""
     xml = b'<?xml version="1.0"?><article><abstract>Integration abstract text</abstract></article>'
-    monkeypatch.setattr(Entrez, 'efetch', lambda db, id, rettype, retmode: DummyHandle2(xml))
+    monkeypatch.setattr(Entrez, 'efetch', lambda db, id, rettype, retmode: DummyHandle(xml))
     url = 'https://pmc.ncbi.nlm.nih.gov/articles/PMC111111/'
     LoaderClass = BaseLoader.detect_loader(url, b'ignored')
     loader = LoaderClass(url, str(tmp_path))
@@ -296,12 +341,7 @@ def test_full_process_pmc(monkeypatch: Any, tmp_path: Any) -> None:
     assert 'Integration abstract text' in content
 
 def test_full_process_pubmed(monkeypatch: Any, tmp_path: Any) -> None:
-    # Monkeypatch efetch to return dummy PubMed XML with an abstract and title
-    class DummyHandle2:
-        def __init__(self, text: bytes) -> None: self._text = text
-        def read(self) -> bytes: return self._text
-        def close(self) -> None: pass
-
+    """Full test of loading process with PubMed article"""
     xml = b'''<?xml version="1.0"?>
     <PubmedArticleSet>
       <PubmedArticle>
@@ -321,7 +361,7 @@ def test_full_process_pubmed(monkeypatch: Any, tmp_path: Any) -> None:
         </MedlineCitation>
       </PubmedArticle>
     </PubmedArticleSet>'''
-    monkeypatch.setattr(Entrez, 'efetch', lambda db, id, rettype, retmode: DummyHandle2(xml))
+    monkeypatch.setattr(Entrez, 'efetch', lambda db, id, rettype, retmode: DummyHandle(xml))
     url = 'https://pubmed.ncbi.nlm.nih.gov/123456/'
     LoaderClass = BaseLoader.detect_loader(url, b'ignored')
     loader = LoaderClass(url, str(tmp_path))
@@ -336,46 +376,49 @@ def test_full_process_pubmed(monkeypatch: Any, tmp_path: Any) -> None:
     assert '10.1234/testdoi' in content
 
 def test_full_process_local_file(tmp_path: Any) -> None:
+    """Full test of loading process with local .txt file"""
     # Create a temporary text file
     test_file = tmp_path / 'test_document.txt'
     test_content = 'This is a test document with some content.'
-    with open(test_file, 'w') as f:
+    with open(test_file, 'w', encoding='utf-8') as f:
         f.write(test_content)
-    
+
     # Process the local file
     loader = TextLoader(str(test_file), str(tmp_path / 'output'))
     loader.process()
-    
+
     # Check that output file was created
     output_file = tmp_path / 'output' / 'test_document.txt'
     assert output_file.exists()
-    
+
     # Check content
-    with open(output_file) as f:
+    with open(output_file, 'r', encoding='utf-8') as f:
         content = f.read()
         assert content == test_content
 
 def test_full_process_local_pdf(monkeypatch: Any, tmp_path: Any) -> None:
+    """Full test of loading process with local PDF"""
     # Mock pdfplumber.open to return DummyPDF with pages
-    def mock_pdf_open(file_obj: Any) -> DummyPDF:
+    def mock_pdf_open(file_obj: Any) -> DummyPDF: # pylint: disable=unused-argument
+        """Mock PDF open function"""
         return DummyPDF([DummyPage("Page 1 content"), DummyPage("Page 2 content")])
     monkeypatch.setattr(pdfplumber, 'open', mock_pdf_open)
-    
+
     # Create a temporary PDF file (content doesn't matter since we mock pdfplumber)
     test_file = tmp_path / 'test_document.pdf'
     with open(test_file, 'wb') as f:
         f.write(b'%PDF-1.4 fake pdf content')
-    
+
     # Process the local file
     loader = PDFLoader(str(test_file), str(tmp_path / 'output'))
     loader.process()
-    
+
     # Check that output file was created
     output_file = tmp_path / 'output' / 'test_document.txt'
     assert output_file.exists()
-    
+
     # Check content
-    with open(output_file) as f:
+    with open(output_file, 'r', encoding='utf-8') as f:
         content = f.read()
         assert 'Page 1 content' in content
         assert 'Page 2 content' in content

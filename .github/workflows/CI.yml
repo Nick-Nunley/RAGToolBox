@@ -12,7 +12,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  test:
+  ci:
+    name: 'Lint, test, & measure coverage'
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -26,26 +27,44 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
-      # 3) Install Poetry
+      # 3) cache deps
+      - name: Cache dependencies
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cache/pypoetry
+            ~/.cache/pip
+          key: ${{ runner.os }}-poetry-${{ hashFiles('**/poetry.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-poetry-
+
+      # 4) Install Poetry
       - name: Install Poetry
         run: |
           curl -sSL https://install.python-poetry.org | python3 -
           # Tell Poetry to install into the current env (so we don't end up in another venv)
           poetry config virtualenvs.create false --local
 
-      # 4) Install dependencies
+      # 5) Install dependencies
       - name: Install dependencies
-        run: poetry install --no-interaction --no-ansi --no-root
+        run: poetry install --no-interaction --no-ansi
 
-      # 5) Download punkt
+      # 6) Download punkt
       - name: Download punkt
         run: bash RAGToolBox/Download_punkt.sh
 
-      # 6) Run tests
+      # 7) Run lint check on package and tests independently
+      - name: Run pylint
+        run: pylint RAGToolBox
+
+      - name: Run pylint
+        run: pylint tests
+
+      # 8) Run tests
       - name: Run pytest
         run: bash tests/Run_tests.sh
 
-      # 7) Upload coverage report
+      # 9) Upload coverage report
       - name: Upload coverage report to Codecov
         uses: codecov/codecov-action@v5
         with:
@@ -53,7 +72,7 @@ jobs:
           files: .coverage
           fail_ci_if_error: true
 
-      # 8) Measure coverage
+      # 10) Measure coverage
       - name: Measure test coverage
         run: |
           python utils/check_coverage.py
