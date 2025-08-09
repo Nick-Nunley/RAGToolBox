@@ -1,14 +1,14 @@
 """Tests associated with Embeddings module"""
 # pylint: disable=protected-access
+# pylint: disable=unused-import
 
 from __future__ import annotations
 import sys
 import types
 from typing import List
+from unittest.mock import Mock
 import numpy as np
 import pytest
-from unittest.mock import Mock, patch
-
 from RAGToolBox.embeddings import Embeddings
 
 # -----------------------
@@ -16,11 +16,13 @@ from RAGToolBox.embeddings import Embeddings
 # -----------------------
 
 def test_validate_embedding_model_valid() -> None:
+    """Test that validate_embedding_model method works"""
     Embeddings.validate_embedding_model("openai")
     Embeddings.validate_embedding_model("fastembed")
 
 
 def test_validate_embedding_model_invalid() -> None:
+    """Test validate_embedding_model throws error as expected"""
     with pytest.raises(ValueError) as exc:
         Embeddings.validate_embedding_model("bogus")
     assert "Unsupported embedding model" in str(exc.value)
@@ -31,12 +33,17 @@ def test_validate_embedding_model_invalid() -> None:
 # -----------------------
 
 def test_embed_fastembed_success(monkeypatch) -> None:
+    """Test embed with fastembed mock works"""
     # Mock fastembed.TextEmbedding so we don't require the package here
     fake_model = Mock()
     # Your implementation uses: list(model.embed(t))[0].tolist()
     # Return an array-of-arrays so list(...)[0] works:
     fake_model.embed.side_effect = lambda t: np.array([[0.1, 0.2, 0.3]])
-    monkeypatch.setitem(sys.modules, "fastembed", types.SimpleNamespace(TextEmbedding=lambda: fake_model))
+    monkeypatch.setitem(
+        sys.modules,
+        "fastembed",
+        types.SimpleNamespace(TextEmbedding=lambda: fake_model)
+        )
 
     texts = ["hello", "world"]
     out = Embeddings._embed_fastembed(texts)  # private helper by design; OK to test directly
@@ -52,39 +59,41 @@ def test_embed_fastembed_success(monkeypatch) -> None:
 # -----------------------
 
 class _FakeRespItem:
+    """Mock response"""
     def __init__(self, vec: List[float]):
         self.embedding = vec
 
 class _FakeClient:
     """Client that mimics openai.OpenAI with a retry-able create()."""
-    def __init__(self, *, fail_first_n: int = 0):
+    def __init__(self, *, fail_first_n: int = 0, rate_limit_exc: type[Exception] = Exception):
         self.fail_first_n = fail_first_n
         self.calls = 0
-        # expose .embeddings.create(...)
         self.embeddings = self
+        self.rate_limit_exc = rate_limit_exc
 
-    def create(self, input, model):  # pylint: disable=redefined-builtin
+    def create(self, input, model):  # pylint: disable=unused-argument,redefined-builtin
+        """Mocked create method to create embeddings"""
         self.calls += 1
         if self.calls <= self.fail_first_n:
-            # Will be replaced by openai.RateLimitError in setup
-            raise self.RateLimitError  # type: ignore[attr-defined]
-        # Return one vector per input string
+            raise self.rate_limit_exc()
         data = [_FakeRespItem([0.1, 0.2, 0.3, 0.4, 0.5]) for _ in input]
         return types.SimpleNamespace(data=data)
 
 def _install_fake_openai(monkeypatch, *, fail_first_n: int = 0):
-    fake_openai = types.SimpleNamespace()
-    # Exception type to raise on rate limiting
-    fake_openai.RateLimitError = type("RateLimitError", (Exception,), {})
-    # Bind exception type onto client so it can raise it
-    client = _FakeClient(fail_first_n=fail_first_n)
-    setattr(client, "RateLimitError", fake_openai.RateLimitError)
-    # Factory that returns our client instance
-    fake_openai.OpenAI = lambda api_key=None: client
+    # Build a fake openai module with the exact exception class the code catches
+    RateLimitError = type("RateLimitError", (Exception,), {})
+    client = _FakeClient(fail_first_n=fail_first_n, rate_limit_exc=RateLimitError)
+
+    fake_openai = types.SimpleNamespace(
+        RateLimitError=RateLimitError,
+        OpenAI=lambda api_key=None: client,
+    )
+
     monkeypatch.setitem(sys.modules, "openai", fake_openai)
     return client, fake_openai
 
 def test_embed_openai_success(monkeypatch) -> None:
+    """Test embed with openai mock works"""
     client, _ = _install_fake_openai(monkeypatch, fail_first_n=0)
     # Avoid sleeping in tests
     monkeypatch.setattr("time.sleep", lambda _s: None)
@@ -96,9 +105,13 @@ def test_embed_openai_success(monkeypatch) -> None:
     assert client.calls == 1  # no retries needed
 
 def test_embed_openai_retries_then_success(monkeypatch) -> None:
-    client, fake_openai = _install_fake_openai(monkeypatch, fail_first_n=2)
+    """Test embed_openai retries sucessfully"""
+    client, _ = _install_fake_openai(monkeypatch, fail_first_n=2)
     sleep_calls = []
-    monkeypatch.setattr("time.sleep", lambda s: sleep_calls.append(s))
+    def _record_sleep(seconds):
+        """Record the sleep duration for assertions."""
+        sleep_calls.append(seconds)
+    monkeypatch.setattr("time.sleep", _record_sleep)
 
     out = Embeddings._embed_openai(["x"], max_retries=5)
     assert out == [[0.1, 0.2, 0.3, 0.4, 0.5]]
@@ -108,6 +121,7 @@ def test_embed_openai_retries_then_success(monkeypatch) -> None:
     assert sleep_calls == [1, 2]  # 2**0, 2**1
 
 def test_embed_openai_exhausts_retries(monkeypatch) -> None:
+    """Test embed_openai erros with exhuasted retries"""
     _client, _ = _install_fake_openai(monkeypatch, fail_first_n=10)  # more than retries
     monkeypatch.setattr("time.sleep", lambda _s: None)
 
@@ -120,14 +134,20 @@ def test_embed_openai_exhausts_retries(monkeypatch) -> None:
 # -----------------------
 
 def test_embed_texts_dispatch_fastembed(monkeypatch) -> None:
+    """Test embed_texts with fastembed dispatch works"""
     fake_model = Mock()
     fake_model.embed.side_effect = lambda t: np.array([[0.9, 0.8]])
-    monkeypatch.setitem(sys.modules, "fastembed", types.SimpleNamespace(TextEmbedding=lambda: fake_model))
+    monkeypatch.setitem(
+        sys.modules,
+        "fastembed",
+        types.SimpleNamespace(TextEmbedding=lambda: fake_model)
+        )
 
     out = Embeddings.embed_texts("fastembed", ["q1", "q2"])
     assert out == [[0.9, 0.8], [0.9, 0.8]]
 
 def test_embed_texts_dispatch_openai(monkeypatch) -> None:
+    """Test embed_texts with openai dispath works"""
     client, _ = _install_fake_openai(monkeypatch, fail_first_n=0)
     monkeypatch.setattr("time.sleep", lambda _s: None)
 
@@ -136,13 +156,19 @@ def test_embed_texts_dispatch_openai(monkeypatch) -> None:
     assert client.calls == 1
 
 def test_embed_texts_invalid_model() -> None:
+    """Test embed_texts throws error with invalid model"""
     with pytest.raises(ValueError):
         Embeddings.embed_texts("nope", ["q"])
 
 def test_embed_one_fastembed(monkeypatch) -> None:
+    """Test embed_one with fastembed dispath works"""
     fake_model = Mock()
     fake_model.embed.side_effect = lambda t: np.array([[0.42, 0.24, 0.06]])
-    monkeypatch.setitem(sys.modules, "fastembed", types.SimpleNamespace(TextEmbedding=lambda: fake_model))
+    monkeypatch.setitem(
+        sys.modules,
+        "fastembed",
+        types.SimpleNamespace(TextEmbedding=lambda: fake_model)
+        )
 
     vec = Embeddings.embed_one("fastembed", "single")
     assert vec == [0.42, 0.24, 0.06]
@@ -152,7 +178,7 @@ def test_embed_one_fastembed(monkeypatch) -> None:
 # -----------------------
 
 def test_fastembed_integration_real_model() -> None:
-    """Runs only if fastembed is installed. Uses real CPU embedding (offline)."""
+    """Full test using real fastembed"""
     try:
         from fastembed import TextEmbedding  # type: ignore
     except ImportError:
