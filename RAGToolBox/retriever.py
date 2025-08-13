@@ -146,6 +146,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     RAGTBLogger.configure_logging_from_args(args=args)
+    logger.debug("CLI args: %s", vars(args))
 
     reriever = Retriever(
         embedding_model = args.embedding_model,
