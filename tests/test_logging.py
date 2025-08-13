@@ -26,6 +26,17 @@ def _reset_logging():
 # UNIT TESTS
 # =====================
 
+def test_setup_logging_with_no_config():
+    """Test setup_loggin function can load a default when no LoggingConfig is supplied"""
+    setup_logging()
+    root = logging.getLogger()
+    handlers = root.handlers
+
+    assert root.level == logging.DEBUG
+    assert len(handlers) == 1
+    assert isinstance(handlers[0], logging.StreamHandler)
+    assert handlers[0].level == logging.INFO
+
 def test_setup_logging_console_only():
     """Test console handler exists with the configured level; no file handler by default."""
     setup_logging(LoggingConfig(console_level="WARNING", log_file=None, force=True))
@@ -80,7 +91,6 @@ def test_setup_logging_force_replaces_handlers():
     # New handler instance (replaced)
     assert id(root.handlers[0]) != first_handler_id
     assert root.handlers[0].level == logging.ERROR
-
 
 def test_setup_logging_no_force_appends_handlers():
     """Test force=False should keep existing handlers and add new ones."""
