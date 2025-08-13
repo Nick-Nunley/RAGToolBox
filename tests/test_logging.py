@@ -4,7 +4,6 @@
 import logging
 import argparse
 from pathlib import Path
-from pydantic.v1.errors import NoneIsAllowedError
 import pytest
 from RAGToolBox.logging import RAGTBLogger, LoggingConfig
 
