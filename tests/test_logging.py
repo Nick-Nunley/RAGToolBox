@@ -2,9 +2,10 @@
 # pylint: disable=redefined-outer-name
 
 import logging
+import argparse
 from pathlib import Path
 import pytest
-from RAGToolBox.logging import setup_logging, LoggingConfig
+from RAGToolBox.logging import RAGTBLogger, LoggingConfig
 
 
 def _clear_root_handlers():
@@ -28,7 +29,7 @@ def _reset_logging():
 
 def test_setup_logging_with_no_config():
     """Test setup_loggin function can load a default when no LoggingConfig is supplied"""
-    setup_logging()
+    RAGTBLogger.setup_logging()
     root = logging.getLogger()
     handlers = root.handlers
 
@@ -39,7 +40,7 @@ def test_setup_logging_with_no_config():
 
 def test_setup_logging_console_only():
     """Test console handler exists with the configured level; no file handler by default."""
-    setup_logging(LoggingConfig(console_level="WARNING", log_file=None, force=True))
+    RAGTBLogger.setup_logging(LoggingConfig(console_level="WARNING", log_file=None, force=True))
 
     root = logging.getLogger()
     handlers = root.handlers
@@ -55,7 +56,7 @@ def test_setup_logging_console_only():
 def test_setup_logging_adds_file_handler(tmp_path: Path):
     """Test when log_file is set, a RotatingFileHandler is added and receives DEBUG logs."""
     log_path = tmp_path / "app.log"
-    setup_logging(LoggingConfig(console_level="ERROR", log_file=str(log_path),
+    RAGTBLogger.setup_logging(LoggingConfig(console_level="ERROR", log_file=str(log_path),
                                 file_level="DEBUG", force=True))
 
     root = logging.getLogger()
@@ -78,14 +79,14 @@ def test_setup_logging_adds_file_handler(tmp_path: Path):
 def test_setup_logging_force_replaces_handlers():
     """Test force=True should replace existing handlers rather than stacking duplicates."""
     # First config: INFO console
-    setup_logging(LoggingConfig(console_level="INFO", log_file=None, force=True))
+    RAGTBLogger.setup_logging(LoggingConfig(console_level="INFO", log_file=None, force=True))
     root = logging.getLogger()
     assert len(root.handlers) == 1
     first_handler_id = id(root.handlers[0])
     assert root.handlers[0].level == logging.INFO
 
     # Second config: ERROR console, with force=True
-    setup_logging(LoggingConfig(console_level="ERROR", log_file=None, force=True))
+    RAGTBLogger.setup_logging(LoggingConfig(console_level="ERROR", log_file=None, force=True))
     root = logging.getLogger()
     assert len(root.handlers) == 1
     # New handler instance (replaced)
@@ -95,13 +96,88 @@ def test_setup_logging_force_replaces_handlers():
 def test_setup_logging_no_force_appends_handlers():
     """Test force=False should keep existing handlers and add new ones."""
     # Start from a clean single console handler
-    setup_logging(LoggingConfig(console_level="INFO", log_file=None, force=True))
+    RAGTBLogger.setup_logging(LoggingConfig(console_level="INFO", log_file=None, force=True))
     root = logging.getLogger()
     assert len(root.handlers) == 1
 
     # Add another console handler without forcing
-    setup_logging(LoggingConfig(console_level="DEBUG", log_file=None, force=False))
+    RAGTBLogger.setup_logging(LoggingConfig(console_level="DEBUG", log_file=None, force=False))
     root = logging.getLogger()
     assert len(root.handlers) == 2
     # Ensure at least one handler has DEBUG level (the newly added one)
     assert any(h.level == logging.DEBUG for h in root.handlers)
+
+
+def test_add_logging_args_defaults_and_overrides(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test add_logging_args attaches flags and respects defaults & CLI overrides."""
+    # Ensure env vars do not affect defaults for this test
+    monkeypatch.delenv("RAGTB_LOG_LEVEL", raising=False)
+    monkeypatch.delenv("RAGTB_LOG_FILE", raising=False)
+    monkeypatch.delenv("RAGTB_LOG_FILE_LEVEL", raising=False)
+
+    parser = argparse.ArgumentParser()
+    RAGTBLogger.add_logging_args(parser)
+
+    # Parse with no flags -> defaults
+    args = parser.parse_args([])
+    assert hasattr(args, "log_level")
+    assert hasattr(args, "log_file")
+    assert hasattr(args, "log_file_level")
+    assert args.log_level == "INFO"
+    assert args.log_file is None
+    assert args.log_file_level == "DEBUG"
+
+    # Parse with overrides
+    args2 = parser.parse_args([
+        "--log-level", "ERROR",
+        "--log-file", "/tmp/ragtb_test.log",
+        "--log-file-level", "WARNING",
+    ])
+    assert args2.log_level == "ERROR"
+    assert args2.log_file == "/tmp/ragtb_test.log"
+    assert args2.log_file_level == "WARNING"
+
+
+def test_configure_logging_from_args_with_file(tmp_path: Path) -> None:
+    """
+    configure_logging_from_args should install console + rotating file handler
+    with the specified levels, and logs should land in the file.
+    """
+    log_file = tmp_path / "app.log"
+    args = argparse.Namespace(
+        log_level="ERROR",
+        log_file=str(log_file),
+        log_file_level="DEBUG",
+    )
+
+    # Configure logging from args
+    RAGTBLogger.configure_logging_from_args(args)
+
+    # Validate handlers
+    root = logging.getLogger()
+    kinds = {type(h) for h in root.handlers}
+    assert logging.StreamHandler in kinds
+    assert logging.handlers.RotatingFileHandler in kinds
+
+    # Console handler level should be ERROR
+    console_levels = [h.level for h in root.handlers if isinstance(h, logging.StreamHandler)]
+    assert any(level == logging.ERROR for level in console_levels)
+
+    # File handler level should be DEBUG
+    file_levels = [
+        h.level for h in root.handlers if isinstance(h, logging.handlers.RotatingFileHandler)
+        ]
+    assert any(level == logging.DEBUG for level in file_levels)
+
+    # Emit a DEBUG log and ensure it is written to the file
+    logger = logging.getLogger("RAGToolBox.test")
+    logger.debug("debug-to-file")
+    for h in root.handlers:
+        try:
+            h.flush()
+        except Exception: # pylint: disable=broad-exception-caught
+            pass
+
+    assert log_file.exists()
+    content = log_file.read_text()
+    assert "debug-to-file" in content

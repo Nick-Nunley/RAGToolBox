@@ -99,8 +99,7 @@ class Retriever:
 
 if __name__ == "__main__":
 
-    import os
-    from RAGToolBox.logging import setup_logging, LoggingConfig
+    from RAGToolBox.logging import RAGTBLogger
 
     parser = argparse.ArgumentParser(description="Retriever for the knowledge base")
 
@@ -142,34 +141,11 @@ if __name__ == "__main__":
         help = 'Number of times to tries to attempt reaching remote embedding model'
         )
 
-    parser.add_argument(
-        '--log-level',
-        default = os.getenv('RAGTB_LOG_LEVEL', 'INFO'),
-        choices = ['CRITICAL', 'ERROR', 'WARNING', 'INFO', 'DEBUG', 'NOTSET'],
-        help = 'Console logging level (default: INFO)'
-        )
-
-    parser.add_argument(
-        '--log-file',
-        default = os.getenv('RAGTB_LOG_FILE'),
-        help = 'If set, write detailed logs to this file (rotating)'
-        )
-
-    parser.add_argument(
-        '--log-file-level',
-        default = os.getenv('RAGTB_LOG_FILE_LEVEL', 'DEBUG'),
-        choices = ['CRITICAL', 'ERROR', 'WARNING', 'INFO', 'DEBUG', 'NOTSET'],
-        help = 'File log level if --log-file is provided (default: DEBUG)'
-        )
+    RAGTBLogger.add_logging_args(parser=parser)
 
     args = parser.parse_args()
 
-    setup_logging(LoggingConfig(
-        console_level = args.log_level,
-        log_file = args.log_file,
-        file_level = args.log_file_level
-        ))
-    logger.debug("CLI args: %s", vars(args))
+    RAGTBLogger.configure_logging_from_args(args=args)
 
     reriever = Retriever(
         embedding_model = args.embedding_model,
