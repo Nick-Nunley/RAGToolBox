@@ -13,7 +13,7 @@ import pytest
 import numpy as np
 from RAGToolBox.vector_store import SQLiteVectorStore
 from RAGToolBox.retriever import Retriever
-from RAGToolBox.logging import LoggingConfig, setup_logging
+from RAGToolBox.logging import LoggingConfig, RAGTBLogger
 
 @pytest.fixture(autouse=True)
 def no_sqlite_init(monkeypatch):
@@ -560,7 +560,7 @@ def test_retriever_integration_verbose_logging(caplog) -> None:
         pytest.skip("fastembed package not available")
 
     caplog.set_level(logging.DEBUG)
-    setup_logging(LoggingConfig(console_level="DEBUG", log_file=None, force=False))
+    RAGTBLogger.setup_logging(LoggingConfig(console_level="DEBUG", log_file=None, force=False))
 
     try:
         # Create test chunks
@@ -601,7 +601,7 @@ def test_retriever_integration_verbose_logging_to_file(tmp_path, caplog) -> None
     caplog.set_level(logging.DEBUG)
 
     log_file = tmp_path / "retriever.log"
-    setup_logging(LoggingConfig(
+    RAGTBLogger.setup_logging(LoggingConfig(
         console_level="DEBUG", log_file=str(log_file), file_level="DEBUG", force=True
         ))
 
