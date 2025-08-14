@@ -85,7 +85,7 @@ class Augmenter:
         try:
             from transformers import AutoTokenizer, AutoModelForCausalLM
 
-            logger.info(f"Loading model: {self.model_name}")
+            logger.info("Loading model: %s", self.model_name)
             self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
             self.model = AutoModelForCausalLM.from_pretrained(self.model_name)
 
@@ -248,7 +248,7 @@ class Augmenter:
         if not retrieved_chunks:
             invalid_resp = "I don't have enough information to answer your question. " + \
             "Please try rephrasing or expanding your query."
-            logger.warning(f"Warning: {invalid_resp}")
+            logger.warning("Warning: %s", invalid_resp)
             return invalid_resp
 
         # Format the prompt
