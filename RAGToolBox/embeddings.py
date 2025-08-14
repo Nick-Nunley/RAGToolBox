@@ -7,8 +7,11 @@ performing text embedding.
 
 from __future__ import annotations
 import os
+import logging
 import time
 from typing import List
+
+logger = logging.getLogger(__name__)
 
 class Embeddings():
     """Embeddings class for handling embedding model validation and embedding"""
@@ -20,10 +23,12 @@ class Embeddings():
     def validate_embedding_model(name: str) -> None:
         """Method to validate embedding_model inputs"""
         if name not in Embeddings.SUPPORTED_EMBEDDING_MODELS:
-            raise ValueError(
+            err = (
                 f"Unsupported embedding model: {name}. "
                 f"Embedding model must be one of: {list(Embeddings.SUPPORTED_EMBEDDING_MODELS)}"
-            )
+                )
+            logger.error(err)
+            raise ValueError(err)
 
     @staticmethod
     def _embed_openai(texts: List[str], max_retries: int) -> List[List[float]]:
@@ -36,7 +41,9 @@ class Embeddings():
                 return [d.embedding for d in resp.data]
             except openai.RateLimitError:
                 time.sleep(2 ** attempt)
-        raise RuntimeError("Failed to embed after multiple retries due to rate limits.")
+        err = "Failed to embed after multiple retries due to rate limits."
+        logger.error(err)
+        raise RuntimeError(err)
 
     @staticmethod
     def _embed_fastembed(texts: List[str]) -> List[List[float]]:
@@ -54,7 +61,9 @@ class Embeddings():
             return Embeddings._embed_openai(texts, max_retries)
         if model_name == "fastembed":
             return Embeddings._embed_fastembed(texts)
-        raise ValueError(f"Embedding model '{model_name}' not supported.")
+        err = f"Embedding model '{model_name}' not supported."
+        logger.error(err)
+        raise ValueError(err)
 
     @staticmethod
     def embed_one(model_name: str, text: str, max_retries: int = 5) -> List[float]:
