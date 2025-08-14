@@ -72,7 +72,7 @@ class RAGTBLogger:
         """Attach standard logging options to any CLI parser."""
         parser.add_argument(
             '--log-level',
-            default = os.getenv('RAGTB_LOG_LEVEL', 'INFO'),
+            default = os.getenv('RAGTB_LOG_LEVEL', 'WARNING'),
             choices = ['CRITICAL', 'ERROR', 'WARNING', 'INFO', 'DEBUG', 'NOTSET'],
             help = 'Console logging level (default: INFO)'
             )

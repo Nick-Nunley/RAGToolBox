@@ -123,7 +123,7 @@ def test_add_logging_args_defaults_and_overrides(monkeypatch: pytest.MonkeyPatch
     assert hasattr(args, "log_level")
     assert hasattr(args, "log_file")
     assert hasattr(args, "log_file_level")
-    assert args.log_level == "INFO"
+    assert args.log_level == "WARNING"
     assert args.log_file is None
     assert args.log_file_level == "DEBUG"
 
