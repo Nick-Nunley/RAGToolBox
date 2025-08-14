@@ -551,7 +551,7 @@ def test_retriever_full_integration() -> None: # pylint: disable=too-many-locals
         if os.path.exists(db_path):
             os.unlink(db_path)
 
-def test_retriever_integration_verbose_logging(caplog) -> None:
+def test_retriever_integration_verbose_logging(caplog: pytest.LogCaptureFixture) -> None:
     """Full retrieval flow with verbose (DEBUG) console logging; no log file."""
     # Skip if fastembed is not installed
     try:
@@ -591,7 +591,9 @@ def test_retriever_integration_verbose_logging(caplog) -> None:
         if os.path.exists(db_path):
             os.unlink(db_path)
 
-def test_retriever_integration_verbose_logging_to_file(tmp_path, caplog) -> None:
+def test_retriever_integration_verbose_logging_to_file(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
     """Full retrieval flow with DEBUG console + DEBUG file logging; verifies file output."""
     try:
         from fastembed import TextEmbedding
