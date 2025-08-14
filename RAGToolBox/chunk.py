@@ -5,10 +5,13 @@ Provides the Chunker classes for breaking down strings into different types of c
 which can then be passed through an embedding process.
 """
 
+import logging
 import re
 from typing import List, Protocol
 import nltk
 from nltk.tokenize import sent_tokenize
+
+logger = logging.getLogger(__name__)
 
 class Chunker(Protocol):
     """Base Chunker class with word general wordboundary methods"""
@@ -58,6 +61,10 @@ class SentenceChunker(Chunker):
         try:
             nltk.data.find('tokenizers/punkt')
         except LookupError:
+            logger.warning(
+                'Warning: could not find local copy of punkt. Downloading punkt '
+                'for sentence chunking'
+                )
             nltk.download('punkt', quiet=True)
         return sent_tokenize(text)
 
@@ -76,11 +83,17 @@ class SlidingWindowChunker(Chunker):
             overlap: Number of characters to overlap between consecutive chunks
         """
         if window_size <= 0:
-            raise ValueError("window_size must be positive")
+            err = "'window_size' must be positive when using 'SlidingWindowChunker'"
+            logger.error(err)
+            raise ValueError(err)
         if overlap < 0:
-            raise ValueError("overlap must be non-negative")
+            err = "'overlap' must be non-negative when using 'SlidingWindowChunker'"
+            logger.error(err)
+            raise ValueError(err)
         if overlap >= window_size:
-            raise ValueError("overlap must be less than window_size")
+            err = "'overlap' must be less than 'window_size' when using 'SlidingWindowChunker'"
+            logger.error(err)
+            raise ValueError(err)
 
         self.window_size = window_size
         self.overlap = overlap
@@ -95,6 +108,9 @@ class SlidingWindowChunker(Chunker):
             List of overlapping text chunks
         """
         if not text.strip():
+            logger.warning(
+                "No text was passed to 'SlidingWindowChunker.chunk', returning an empty list"
+                )
             return []
 
         chunks = []
@@ -138,11 +154,17 @@ class SectionAwareChunker(Chunker):
             overlap: Character overlap between chunks
         """
         if max_chunk_size <= 0:
-            raise ValueError("max_chunk_size must be positive")
+            err = "'max_chunk_size' must be positive when using 'SectionAwareChunker'"
+            logger.error(err)
+            raise ValueError(err)
         if overlap < 0:
-            raise ValueError("overlap must be non-negative")
+            err = "'overlap' must be non-negative when using 'SectionAwareChunker'"
+            logger.error(err)
+            raise ValueError(err)
         if overlap >= max_chunk_size:
-            raise ValueError("overlap must be less than max_chunk_size")
+            err = "'overlap' must be less than 'max_chunk_size' when using 'SectionAwareChunker'"
+            logger.error(err)
+            raise ValueError(err)
 
         self.max_chunk_size = max_chunk_size
         self.overlap = overlap
@@ -158,6 +180,9 @@ class SectionAwareChunker(Chunker):
             List of text chunks with section context
         """
         if not text.strip():
+            logger.warning(
+                "No text was passed to 'SectionAwareChunker.chunk', returning an empty list"
+                )
             return []
 
         # Split by markdown headers
@@ -272,7 +297,9 @@ class HierarchicalChunker(Chunker):
     """
     def __init__(self, chunkers: List[Chunker]):
         if not chunkers:
-            raise ValueError("At least one chunker must be provided")
+            err = "At least one chunker must be provided when using 'HiearchicalChunker'"
+            logger.error(err)
+            raise ValueError(err)
         self.chunkers = chunkers
 
     def chunk(self, text: str) -> List[str]:
