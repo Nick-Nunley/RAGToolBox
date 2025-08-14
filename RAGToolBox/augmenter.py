@@ -8,6 +8,7 @@ Additionally, this script provides a CLI entry point for execution as a standalo
 """
 
 import argparse
+import logging
 import os
 import sys
 from importlib.resources import files
@@ -16,6 +17,7 @@ from pathlib import Path
 import yaml
 from RAGToolBox.retriever import Retriever
 
+logger = logging.getLogger(__name__)
 
 class Augmenter:
     """
@@ -44,7 +46,9 @@ class Augmenter:
             prompts = yaml.safe_load(f)
             if prompt_type not in prompts:
                 choices = ", ".join(prompts.keys())
-                raise ValueError(f"Invalid prompt_type '{prompt_type}'. Choose from: {choices}")
+                err = f"Invalid prompt_type '{prompt_type}'. Choose from: {choices}"
+                logger.error(err)
+                raise ValueError(err)
             self.prompt_type = prompts[prompt_type]
 
         # Initialize model based on preference
@@ -52,7 +56,7 @@ class Augmenter:
             self._initialize_local_model()
         else:
             if not self.api_key:
-                print(
+                logger.warning(
                     "Warning: No API key provided. "
                     "Some models may not work without authentication."
                     )
@@ -63,22 +67,25 @@ class Augmenter:
         try:
             from huggingface_hub import InferenceClient
             self.client = InferenceClient(token=self.api_key)
+            logger.debug("Hugging Face InferenceClient initialized successfully")
         except ImportError as e:
-            raise ImportError(
+            err = (
                 "huggingface_hub package is required. "
                 "Install with: pip install huggingface_hub"
-            ) from e
+                )
+            logger.error(err, exc_info=True)
+            raise ImportError(err) from e
         except Exception as e:
-            raise RuntimeError(
-                f"Error initializing Hugging Face client: {e}"
-            ) from e
+            err = "Error initializing Hugging Face client"
+            logger.error(err, exc_info=True)
+            raise RuntimeError(err) from e
 
     def _initialize_local_model(self):
         """Initialize the local model using transformers library."""
         try:
             from transformers import AutoTokenizer, AutoModelForCausalLM
 
-            print(f"Loading model: {self.model_name}")
+            logger.info(f"Loading model: {self.model_name}")
             self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
             self.model = AutoModelForCausalLM.from_pretrained(self.model_name)
 
@@ -86,15 +93,19 @@ class Augmenter:
             if self.tokenizer.pad_token is None:
                 self.tokenizer.pad_token = self.tokenizer.eos_token
 
-            print("Model loaded successfully!")
+            logger.debug("Model loaded successfully!")
 
         except ImportError as e:
-            raise ImportError(
+            err = (
                 "Transformers package is required. "
                 "Install with: pip install transformers torch"
-                ) from e
+                )
+            logger.error(err, exc_info=True)
+            raise ImportError(err ) from e
         except Exception as e:
-            raise RuntimeError(f"Error loading model: {str(e)}") from e
+            err = f"Error loading model: {self.model_name}"
+            logger.error(err, exc_info=True)
+            raise RuntimeError(err) from e
 
     def _format_prompt(self, query: str, retrieved_chunks: List[str]) -> str:
         """
@@ -159,17 +170,24 @@ class Augmenter:
 
             if generated_text:
                 return generated_text
-            raise RuntimeError("I don't have enough information to provide a detailed answer.")
+            err = "I don't have enough information to provide a detailed answer."
+            logger.error(err)
+            raise RuntimeError(err)
 
         except ImportError as e:
-            raise ImportError("Torch package is required. Install with: pip install torch") from e
+            err = "Torch package is required. Install with: pip install torch"
+            logger.error(err, exc_info=True)
+            raise ImportError(err) from e
         except Exception as e:
-            raise RuntimeError(f"Error calling local model: {str(e)}") from e
+            err = f"Error calling local model: {self.model_name}"
+            logger.error(err, exc_info=True)
+            raise RuntimeError(err) from e
 
     def _call_huggingface_api(
         self, prompt: str, temperature: float = 0.25, max_new_tokens: int = 200
         ) -> str:
         """Call Hugging Face inference API."""
+        logger.debug("Calling Hugging Face API")
         try:
             # Use the InferenceClient to generate text using chat completions
             completion = self.client.chat.completions.create(
@@ -192,18 +210,24 @@ class Augmenter:
             error_str = str(e).lower()
             print(error_str)
             if "404" in error_str or "not found" in error_str or "stopiteration" in error_str:
-                raise RuntimeError(
+                err_msg = (
                     f"Model '{self.model_name}' is not available on Hugging Face's inference API. "
                     f"Try using a different model like 'deepseek-ai/DeepSeek-V3-0324', "
                     f"'meta-llama/Llama-2-7b-chat-hf', "
                     f"or set use_local=True to use local models."
-                    ) from e
+                    )
+                logger.error(err_msg, exc_info=True)
+                raise RuntimeError(err_msg) from e
             if "authentication" in error_str or "token" in error_str:
-                raise RuntimeError(
+                err_msg = (
                     f"Authentication error: {str(e)}. "
                     f"Please check your HUGGINGFACE_API_KEY environment variable."
-                    ) from e
-            raise RuntimeError(f"Error calling Hugging Face API: {str(e)}") from e
+                    )
+                logger.error(err_msg, exc_info=True)
+                raise RuntimeError(err_msg) from e
+            err_msg = "Error calling Hugging Face API"
+            logger.error(err_msg, exc_info=True)
+            raise RuntimeError(err_msg) from e
 
     def generate_response(
         self, query: str, retrieved_chunks: List[str],
@@ -224,6 +248,7 @@ class Augmenter:
         if not retrieved_chunks:
             invalid_resp = "I don't have enough information to answer your question. " + \
             "Please try rephrasing or expanding your query."
+            logger.warning(f"Warning: {invalid_resp}")
             return invalid_resp
 
         # Format the prompt
@@ -231,7 +256,7 @@ class Augmenter:
 
         # Call the LLM
         resp = self._call_llm(prompt, temperature, max_new_tokens)
-
+        logger.info("Valid response from LLM generated")
         return resp
 
     def generate_response_with_sources(
@@ -263,6 +288,7 @@ class Augmenter:
 
 if __name__ == "__main__":
 
+    from RAGToolBox.logging import RAGTBLogger
 
     # Set up argument parser
     parser = argparse.ArgumentParser(
@@ -360,19 +386,30 @@ Examples:
         help = 'Number of times to tries to attempt reaching remote embedding model'
         )
 
+    RAGTBLogger.add_logging_args(parser=parser)
+
     # Parse arguments
     args = parser.parse_args()
 
+    RAGTBLogger.configure_logging_from_args(args=args)
+    logger.debug("CLI args: %s", vars(args))
+
     try:
         # Initialize retriever
-        print(f"Initializing retriever with model: {args.embedding_model}")
+        logger.info(
+            "Initializing retriever with model=%s, db_path=%s",
+            args.embedding_model, args.db_path
+            )
         retriever = Retriever(
             embedding_model=args.embedding_model,
             db_path=args.db_path
         )
 
         # Initialize augmenter
-        print(f"Initializing augmenter with model: {args.model_name}")
+        logger.info(
+            "Initializing augmenter with model=%s (use_local=%s)",
+            args.model_name, args.use_local
+            )
         augmenter = Augmenter(
             model_name=args.model_name,
             api_key=args.api_key,
@@ -381,14 +418,20 @@ Examples:
         )
 
         # Retrieve context
-        print(f"Retrieving context for query: {args.query}")
+        logger.info(
+            "Retrieving context for query: %r (top_k=%d, max_retries=%d)",
+            args.query, args.top_k, args.max_retries
+            )
         context = retriever.retrieve(args.query, args.top_k, args.max_retries)
 
         if not context:
-            print("Warning: No relevant context found for the query.")
+            logger.warning("Warning: No relevant context found for the query.")
 
         # Generate response
-        print("Generating response...")
+        logger.info(
+            "Generating response (temperature=%.2f, max_tokens=%d)",
+            args.temperature, args.max_tokens
+            )
         if args.sources:
             response = augmenter.generate_response_with_sources(
                 args.query,
@@ -417,5 +460,6 @@ Examples:
             print(f"Sources used: {len(context)} chunks")
 
     except Exception as e: # pylint: disable=broad-exception-caught
-        print(f"Error: {str(e)}")
+        logger.exception("Augmenter run failed")
+        print(f"Error: {str(e)}", file=sys.stderr)
         sys.exit(1)
