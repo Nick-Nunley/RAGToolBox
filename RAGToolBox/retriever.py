@@ -48,18 +48,6 @@ class Retriever:
         self.vector_store.initialize()
         logger.info("Vector store initialized successfully")
 
-    def _load_db(self) -> pd.DataFrame:
-        """Method to load the database into a pandas dataframe"""
-        logger.debug("Opening SQLite DB at %s", self.db_path)
-        try:
-            with sqlite3.connect(self.db_path) as conn:
-                df = pd.read_sql_query("SELECT * FROM embeddings", conn)
-            logger.info("Loaded %d rows from DB", len(df))
-            return df
-        except sqlite3.Error:
-            logger.exception("Failed to load DB at %s", self.db_path)
-            raise
-
     def _embed_query(self, query: str, max_retries: int = 5) -> List[float]:
         """Method to embed the query using the embedding model"""
         logger.debug("Embedding query (len=%d) with model=%s, max_retries=%d",
