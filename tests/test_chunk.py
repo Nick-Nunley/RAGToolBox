@@ -1,5 +1,6 @@
 """Tests associated with Chunk module"""
 
+import logging
 from typing import List
 import pytest
 
@@ -11,6 +12,7 @@ from RAGToolBox.chunk import (
     SectionAwareChunker,
     HierarchicalChunker
 )
+from RAGToolBox.logging import RAGTBLogger, LoggingConfig
 
 # Test data
 SAMPLE_TEXT = (
@@ -488,6 +490,25 @@ def test_sliding_window_chunker_no_word_clipping() -> None:
                     )
     # Also check that the full word is present in at least one chunk
     assert any('boundaryword' in chunk for chunk in chunks)
+
+def test_sliding_window_chunker_input_errors_handled(caplog: pytest.LogCaptureFixture) -> None:
+    """Test that SlidingWindowChunker inialization handles input errors correctly"""
+    caplog.set_level(logging.DEBUG)
+    RAGTBLogger.setup_logging(LoggingConfig(console_level="DEBUG", log_file=None, force=False))
+
+    err_1 = "'window_size' must be positive when using 'SlidingWindowChunker'"
+    err_2 = "'overlap' must be non-negative when using 'SlidingWindowChunker'"
+    err_3 = "'overlap' must be less than 'window_size' when using 'SlidingWindowChunker'"
+
+    with pytest.raises(ValueError, match=err_1):
+        SlidingWindowChunker(window_size=-10)
+    with pytest.raises(ValueError, match=err_2):
+        SlidingWindowChunker(overlap=-1)
+    with pytest.raises(ValueError, match=err_3):
+        SlidingWindowChunker(window_size=10, overlap=100)
+    assert err_1 in caplog.text
+    assert err_2 in caplog.text
+    assert err_3 in caplog.text
 
 # =====================
 # INTEGRATION TESTS
