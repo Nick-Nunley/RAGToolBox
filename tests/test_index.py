@@ -2,8 +2,11 @@
 # pylint: disable=protected-access
 
 import argparse
+import logging
 import sqlite3
 from unittest.mock import patch, MagicMock
+from pathlib import Path
+import pytest
 from RAGToolBox.index import Indexer, IndexerConfig, ParallelConfig
 
 class DummyChunker:
@@ -68,7 +71,8 @@ def test_indexer_load_subparser() -> None:
         indexer.main(args)
         mock_run.assert_called_once()
         called_args = mock_run.call_args[0][0]
-        assert called_args[:3] == ['python', 'RAGToolBox/loader.py', 'http://example.com/doc1']
+        assert 'python' in called_args[0]
+        assert called_args[1:4] == ['-m', 'RAGToolBox.loader', 'http://example.com/doc1']
         assert '--output-dir' in called_args and 'mydir' in called_args
         assert '--email' in called_args and 'test@example.com' in called_args
         assert '--use-readability' in called_args
@@ -192,3 +196,42 @@ def test_index_method_single_threaded(tmp_path: str) -> None:
     assert chunks == {'chunkA', 'chunkB'}
     assert sources == {'A', 'B'}
     conn.close()
+
+def test_index_warns_when_no_chunks_to_embed(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+    """
+    Test calling Indexer.index with an empty chunked_results should:
+      - log a WARNING: "No chunks to embed."
+      - return early without attempting inserts
+    """
+    # Capture warnings from this module's logger
+    caplog.set_level(logging.WARNING, logger="RAGToolBox.index")
+    # Set up indexer writing to a temp directory
+    indexer = Indexer(
+        chunker=DummyChunker(),
+        embedding_model="openai",
+        config=IndexerConfig(output_dir=tmp_path)
+        )
+
+    # Act: no chunks
+    indexer.index(chunked_results=[], parallel_config=None)
+
+    # Warning was logged
+    assert any(
+        "No chunks to embed." in rec.getMessage() for rec in caplog.records
+    ), "Expected 'No chunks to embed.' warning to be logged"
+
+    # Verify that no rows exist (if the DB/table exists)
+    db_path = tmp_path / "embeddings.db"
+    if db_path.exists():
+        with sqlite3.connect(db_path) as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='embeddings';"
+            )
+            table_exists = cur.fetchone() is not None
+            if table_exists:
+                cur.execute("SELECT COUNT(*) FROM embeddings")
+                count = cur.fetchone()[0]
+                assert count == 0
