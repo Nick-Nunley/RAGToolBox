@@ -61,6 +61,20 @@ def test_augmenter_initialization_custom():
     assert augmenter.use_local is False
 
 
+def test_augmenter_initialization_prompt_type_error(
+    caplog: pytest.LogCaptureFixture
+    ) -> None:
+    """Test Augmenter initialization with invalid prompt type"""
+    caplog.set_level(logging.DEBUG)
+    RAGTBLogger.setup_logging(LoggingConfig(console_level="DEBUG", log_file=None, force=False))
+
+    with pytest.raises(ValueError) as exc:
+        Augmenter(prompt_type='Invalid prompt')
+    err_msg = 'Invalid prompt_type'
+    assert err_msg in str(exc.value)
+    assert err_msg in caplog.text
+
+
 def test_augmenter_initialization_no_api_key():
     """Test Augmenter initialization without API key."""
     with patch.dict(os.environ, {}, clear=True):
