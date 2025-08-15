@@ -11,9 +11,7 @@ import argparse
 import logging
 from typing import List, Optional
 from pathlib import Path
-import sqlite3
 import numpy as np
-import pandas as pd
 from RAGToolBox.embeddings import Embeddings
 from RAGToolBox.vector_store import VectorStoreFactory
 
