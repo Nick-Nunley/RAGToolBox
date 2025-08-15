@@ -297,7 +297,7 @@ class HierarchicalChunker(Chunker):
     """
     def __init__(self, chunkers: List[Chunker]):
         if not chunkers:
-            err = "At least one chunker must be provided when using 'HiearchicalChunker'"
+            err = "At least one chunker must be provided when using 'HierarchicalChunker'"
             logger.error(err)
             raise ValueError(err)
         self.chunkers = chunkers
