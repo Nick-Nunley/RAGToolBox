@@ -9,6 +9,7 @@ Additionally, this script provides a CLI entry point for execution as a standalo
 
 import argparse
 import os
+import logging
 import io
 import re
 import xml.etree.ElementTree as ET
@@ -20,7 +21,9 @@ from bs4.element import NavigableString
 import html2text
 import pdfplumber
 from Bio import Entrez
+from RAGToolBox.logging import RAGTBLogger
 
+logger = logging.getLogger(__name__)
 
 class BaseLoader:
     """
@@ -47,37 +50,46 @@ class BaseLoader:
                 self.raw_content = f.read()
         else:
             try:
-                print(self.timeout)
+                logger.debug(self.timeout)
                 response = requests.get(self.source, timeout=self.timeout)
                 response.raise_for_status()
                 self.raw_content = response.content
             except requests.Timeout as exc:
-                raise TimeoutError(
-                    f"Timed out after {self.timeout}s fetching {self.source}"
-                ) from exc
+                err = f"Timed out after {self.timeout}s fetching {self.source}"
+                logger.error(err, exc_info=True)
+                raise TimeoutError(err) from exc
             except requests.RequestException as exc:
                 # covers HTTP errors, connection errors, etc.
-                raise RuntimeError(
-                    f"Error fetching {self.source!r}: {exc}"
-                ) from exc
+                err = f"Error fetching {self.source!r}"
+                logger.error(err, exc_info=True)
+                raise RuntimeError(err) from exc
 
     @staticmethod
     def _handle_local_file_detection(source: str, content: bytes) -> type:
         """Helper method for detect loader to handle local files"""
         ext = os.path.splitext(source)[1].lower()
         if ext == '.pdf':
+            logger.debug('PDF detected while loading %s', source)
             return PDFLoader
         if ext in ['.txt', '.md']:
+            logger.debug('TXT file detected while loading %s', source)
             return TextLoader
         if ext in ['.html', '.htm']:
+            logger.debug('HTML detected while loading %s', source)
             return HTMLLoader
         # Try to detect by content
         head = content[:512].lstrip().lower()
         if head.startswith(b'<html') or head.startswith(b'<!doctype html'):
+            logger.debug('HTML detected while loading %s', source)
             return HTMLLoader
         if head.startswith(b'%pdf'):
+            logger.debug('PDF detected while loading %s', source)
             return PDFLoader
-        return TextLoader  # Default to text loader for unknown local files
+        logger.warning(
+            'Unknown format detected while loading %s. Falling back to TextLoader.',
+            source
+            )
+        return TextLoader
 
     @staticmethod
     def _handle_remote_file_detection(source: str, content: bytes) -> type:
@@ -88,15 +100,23 @@ class BaseLoader:
         head = content[:512].lstrip().lower()
 
         if 'ncbi.nlm.nih.gov' in urlparse(source).netloc:
+            logger.debug('NCBI format detected while loading %s', source)
             return NCBILoader
         if ext in ['.html', '.htm'] or \
         head.startswith(b'<html') or \
         head.startswith(b'<!doctype html'):
+            logger.debug('HTML detected while loading %s', source)
             return HTMLLoader
         if ext == '.pdf':
+            logger.debug('PDF detected while loading %s', source)
             return PDFLoader
         if ext in ['.txt', '.md']:
+            logger.debug('TXT file detected while loading %s', source)
             return TextLoader
+        logger.warning(
+            'Unknown format detected while loading %s. Falling back to UnknownLoader.',
+            source
+            )
         return UnknownLoader
 
     @staticmethod
@@ -111,7 +131,9 @@ class BaseLoader:
 
     def convert(self) -> None:
         """Convert raw content bytes to plain text. Implemented by subclasses."""
-        raise NotImplementedError("Subclasses must implement convert()")
+        err = "Subclasses must implement convert()"
+        logger.error(err)
+        raise NotImplementedError(err)
 
     def save(self) -> None:
         """Save the converted text to a .txt file in the output directory."""
@@ -129,17 +151,17 @@ class BaseLoader:
         out_path = os.path.join(self.output_dir, filename)
         with open(out_path, 'w', encoding='utf-8') as f:
             f.write(self.text)
-        print(f"Saved plain text to {out_path}")
+        logger.info("Saved plain text to %s", out_path)
 
     def process(self) -> None:
         """Full pipeline: fetch, convert, and save."""
-        print(f"Processing: {self.source}")
+        logger.info("Processing: %s", self.source)
         self.fetch()
         self.convert()
         if self.text:
             self.save()
         else:
-            print(f"Warning: No text extracted from {self.source}")
+            logger.warning("Warning: No text extracted from %s", self.source)
 
 class NCBILoader(BaseLoader):
     """Loader sublcass for handling fetching and loading documentation from NCBI APIs"""
@@ -162,6 +184,10 @@ class NCBILoader(BaseLoader):
         if 'pubmed.' in netloc:
             return 'pubmed'
         # Fallback: assume PMC
+        logger.warning(
+            "Detected NCBI format, but could not find 'pmc.' or 'pubmed.' strings in %s",
+            netloc
+            )
         return 'pmc'
 
     def fetch(self) -> None:
@@ -182,16 +208,19 @@ class NCBILoader(BaseLoader):
             self.raw_content = xml_content
         except Exception as e:
             tried.append(f"{db}/xml: {e}")
-            raise RuntimeError(f"Entrez fetch failed for {pmc_id}: {tried}") from e
+            err = f"Entrez fetch failed for {pmc_id}: {tried}"
+            logger.error(err, exc_info=True)
+            raise RuntimeError(err) from e
 
         # Try to extract PDF link if PMC
         pdf_url = self._extract_pdf_url_from_xml(
             self.raw_content
             ) if db == 'pmc' and self.raw_content else None
         if pdf_url:
-            print(
-                f"PDF link found for {pmc_id}: {pdf_url}\n"
-                f"Attempting to download and extract text from PDF."
+            logger.debug(
+                "PDF link found for %s: %s\nAttempting to download and extract text from PDF.",
+                pmc_id,
+                pdf_url
                 )
             try:
                 pdf_bytes = self._download_pdf(pdf_url)
@@ -201,10 +230,11 @@ class NCBILoader(BaseLoader):
                 self.text = pdf_loader.text
                 self._used_pdf = True
                 return
-            except Exception as e: # pylint: disable=broad-exception-caught
-                print(
-                    f"Failed to download or process PDF for {pmc_id}: "
-                    f"{e}\nFalling back to XML extraction."
+            except Exception as _: # pylint: disable=broad-exception-caught
+                logger.warning(
+                    "Failed to download or process PDF for %s\nFalling back to XML extraction.",
+                    pmc_id,
+                    exc_info=True
                     )
                 self._used_pdf = False
         else:
@@ -218,9 +248,10 @@ class NCBILoader(BaseLoader):
             errors='ignore'
             ) if isinstance(self.raw_content, bytes) else self.raw_content
         if "does not allow downloading of the full text" in raw_str:
-            print(
-                f"Warning: Full text not available for {pmc_id}. "
-                f"Only abstract and metadata will be extracted."
+            logger.warning(
+                "Warning: Full text not available for %s. Only abstract and metadata "
+                "will be extracted.",
+                pmc_id
                 )
 
     def _extract_pdf_url_from_xml(self, xml_bytes: Union[bytes, str]) -> Optional[str]:
@@ -238,6 +269,7 @@ class NCBILoader(BaseLoader):
             return None
         except Exception as e: # pylint: disable=broad-exception-caught
             print(f"Error parsing XML for PDF link: {e}")
+            logger.warning("Error parsing XML for PDF link. Returning dtype=None.", exc_info=True)
             return None
 
     def _download_pdf(self, pdf_url: str) -> bytes:
@@ -325,18 +357,20 @@ class NCBILoader(BaseLoader):
                 return self._parse_pmc_xml(root)
             if tag.endswith('pubmedarticleset') or tag.endswith('pubmedarticle'):
                 return self._parse_pubmed_xml(root)
-            print(f"Unknown XML root tag: {tag}. Returning empty article data.")
+            logger.warning("Unkonwn XML root tag: %s. Returning empty article data.", tag)
             return {}
-        except Exception as e: # pylint: disable=broad-exception-caught
-            print(f"Error parsing XML content: {e}")
+        except Exception as _: # pylint: disable=broad-exception-caught
+            logger.warning("Error parsing XML content. Returning dtype=None.", exc_info=True)
             return None
 
     def _check_available_sources(self, source_type: str) -> None:
         if source_type not in self._supported_sources:
-            raise ValueError(
+            err = (
                 f'{source_type} is not supported by NCBILoader. '
                 f'See available sources: {self._supported_sources}'
                 )
+            logger.error(err)
+            raise ValueError(err)
 
     def _obtain_authors(self, root: ET.Element, source_type: str) -> List[str]:
         self._check_available_sources(source_type=source_type)
@@ -407,9 +441,10 @@ class NCBILoader(BaseLoader):
         body_elem = root.find(".//body")
         article_data['body'] = self.extract_all_text(body_elem)
         if not article_data['body']:
-            print(
-                f"Warning: Full text/body not available for {self.pmc_id}. "
-                f"Only abstract and metadata will be extracted."
+            logger.warning(
+                "Warning: Full text/body not availble for %s. "
+                "Only abstract and metadata will be extracted.",
+                self.pmc_id
                 )
         # References
         article_data['references'] = "\n".join(
@@ -457,7 +492,7 @@ class NCBILoader(BaseLoader):
         out_path = os.path.join(self.output_dir, filename)
         with open(out_path, 'w', encoding='utf-8') as f:
             f.write(self.text)
-        print(f"Saved plain text to {out_path}")
+        logger.info("Saved plain text to %s", out_path)
 
 class HTMLLoader(BaseLoader):
     """Loader subclass from fetching and loading documentation directly from HTML"""
@@ -531,6 +566,10 @@ class HTMLLoader(BaseLoader):
         elif element.name == "p":
             str_val = element.get_text(separator=' ', strip=True) + "\n"
         else:
+            logger.warning(
+                "Warning: no HTML header/section tags detected when converting HTML header "
+                "to markdown. Returning dtype=None."
+                )
             return None
         return str_val
 
@@ -558,6 +597,10 @@ class HTMLLoader(BaseLoader):
     def convert(self) -> None:
         """Extract main article text and structure it as markdown with metadata."""
         if self.raw_content is None:
+            logger.warning(
+                "Warning: no content detected when calling HTMLLoader.convert(). "
+                "Setting HTMLLoader.text attribute to an empty string."
+                )
             self.text = ""
             return
 
@@ -626,6 +669,10 @@ class HTMLLoader(BaseLoader):
         os.makedirs(self.output_dir, exist_ok=True)
         # Try extracting a real title:
         if self.raw_content is None:
+            logger.warning(
+                "Warning: no content detected when calling HTMLLoader.save(). "
+                "Setting title var to an empty string."
+                )
             title = ""
         else:
             title = self._extract_title(self.raw_content)  # type: ignore
@@ -633,6 +680,7 @@ class HTMLLoader(BaseLoader):
             name = self._slugify(title)
         else:
             # Fallback to base class logic
+            logger.warning("Warning: No title detected in HTML content for %s", self.source)
             parsed = urlparse(self.source)
             basename = os.path.basename(parsed.path) or "document"
             name = os.path.splitext(basename)[0]
@@ -640,7 +688,7 @@ class HTMLLoader(BaseLoader):
         out_path = os.path.join(self.output_dir, filename)
         with open(out_path, 'w', encoding='utf-8') as f:
             f.write(self.text)
-        print(f"Saved plain text to {out_path}")
+        logger.info("Saved plain text to %s", out_path)
 
 class PDFLoader(BaseLoader):
     """Loader sublcass for fetching and loading documentation directly from PDF formats"""
@@ -649,6 +697,10 @@ class PDFLoader(BaseLoader):
         """Extract text from each page of a PDF."""
         text_chunks = []
         if self.raw_content is None:
+            logger.warning(
+                "Warning: no content detected when calling PDFLoader.convert(). "
+                "Setting PDFLoader.text attribute to an empty string."
+                )
             return
         with pdfplumber.open(io.BytesIO(self.raw_content)) as pdf:  # type: ignore
             for page in pdf.pages:
@@ -663,6 +715,10 @@ class TextLoader(BaseLoader):
     def convert(self) -> None:
         """Decode raw bytes as UTF-8 text."""
         if self.raw_content is None:
+            logger.warning(
+                "Warning: no content detected when calling TextLoader.convert(). "
+                "Setting TextLoader.text attribute to an empty string."
+                )
             self.text = ""
         else:
             self.text = self.raw_content.decode('utf-8', errors = 'ignore')  # type: ignore
@@ -672,7 +728,7 @@ class UnknownLoader(BaseLoader):
 
     def convert(self) -> None:
         """Handle unknown formats gracefully by skipping."""
-        print(f"Unknown format for URL: {self.source}")
+        logger.warning("Unknown format for URL: %s. Cannot convert to text format.", self.source)
         self.text = ''
 
 
@@ -704,14 +760,19 @@ if __name__ == '__main__':
         type=float,
         help='Time to wait when making requests to prevent hanging programs'
     )
+    RAGTBLogger.add_logging_args(parser=parser)
     args = parser.parse_args()
+
+    RAGTBLogger.configure_logging_from_args(args=args)
 
     # Set Entrez email if provided
     if args.email:
         Entrez.email = args.email
     else:
         if not Entrez.email:
-            print("Warning: No email provided for NCBI E-utilities; they may block requests.")
+            logger.warning(
+                "Warning: No email provided for NCBI E-utilities; they may block requests."
+                )
 
     for raw_source in args.sources:
         try:
@@ -724,9 +785,11 @@ if __name__ == '__main__':
                 # For URLs, fetch via requests
                 raw = requests.get(raw_source, timeout=args.timeout).content
         except TimeoutError as e:
-            raise TimeoutError(f"Request to {raw_source} timed out") from e
+            ERR = f"Request to {raw_source} timed out"
+            logger.error(ERR, exc_info=True)
+            raise TimeoutError(ERR) from e
         except Exception as e: # pylint: disable=broad-exception-caught
-            print(f"Failed to fetch {raw_source}: {e}")
+            logger.warning("Failed to fetch %s.", raw_source)
             continue
 
         LoaderClass = BaseLoader.detect_loader(raw_source, raw)
