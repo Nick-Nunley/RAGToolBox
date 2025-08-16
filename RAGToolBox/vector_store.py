@@ -5,6 +5,7 @@ Provides the VectorStore classes for handling and interfacing with various
 vector storage formats (e.g. SQLite and Chromadb).
 """
 
+import logging
 import json
 import hashlib
 import sqlite3
@@ -12,6 +13,7 @@ from abc import ABC, abstractmethod
 from typing import List, Dict, Any, Optional
 from pathlib import Path
 
+logger = logging.getLogger(__name__)
 
 class VectorStoreBackend(ABC):
     """Abstract base class for vector storage backends."""
@@ -78,18 +80,25 @@ class SQLiteVectorStore(VectorStoreBackend):
 
         conn.commit()
         conn.close()
+        logger.info("Embddings inserted successfully")
 
     def get_all_embeddings(self) -> List[Dict[str, Any]]:
         """Get all embeddings from the SQLite database."""
         if not Path(self.db_path).exists():
-            print(f'Warning: no such database found at {self.db_path}. Returning empty list...')
+            logger.warning(
+                'Warning: no such database found at %s. Returning emtpy list...',
+                self.db_path
+                )
             return []
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         try:
             cursor.execute('SELECT chunk, embedding, metadata FROM embeddings')
         except sqlite3.OperationalError:
-            print(f'Warning: no "embeddings" table in {self.db_path}. Returning empty list...')
+            logger.warning(
+                "Warning: no 'embeddings' table in %s. Returning empty list...",
+                self.db_path
+                )
             conn.close()
             return []
         cursor.execute('SELECT chunk, embedding, metadata FROM embeddings')
@@ -137,24 +146,35 @@ class ChromaVectorStore(VectorStoreBackend):
         try:
             import chromadb
         except ImportError as e:
-            raise ImportError(
-                "ChromaDB is not installed. Install it with: pip install chromadb"
-                ) from e
+            err = "ChromaDB is not installed. Install it with: pip install chromadb"
+            logger.error(err, exc_info=True)
+            raise ImportError(err) from e
 
         if self.chroma_client_url:
             # Remote Chroma server
+            logger.debug("Connecting to remote Chroma server at %s", self.chroma_client_url)
             self.client = chromadb.HttpClient(host=self.chroma_client_url)
         else:
             # Local Chroma with optional persistence
             if self.persist_directory:
+                logger.debug(
+                    "Connecting to persistence Chroma server at %s",
+                    self.persist_directory
+                    )
                 self.client = chromadb.PersistentClient(path=str(self.persist_directory))
             else:
+                logger.debug("Connecting to local Chroma server with 'chromadb.Client()'")
                 self.client = chromadb.Client()
 
         # Get or create collection
         try:
             self.collection = self.client.get_collection(name=self.collection_name)
+            logger.debug("Chroma collection: %s found.", self.collection_name)
         except Exception: # pylint: disable=broad-exception-caught
+            logger.debug(
+                "Chroma collection: %s not found. Creating new collection.",
+                self.collection_name
+                )
             self.collection = self.client.create_collection(name=self.collection_name)
 
     def insert_embeddings(
@@ -162,7 +182,9 @@ class ChromaVectorStore(VectorStoreBackend):
         ) -> None:
         """Insert chunks and embeddings into Chroma collection."""
         if not self.collection:
-            raise RuntimeError("Chroma collection not initialized. Call initialize() first.")
+            err = "Chroma collection not initialized. Call initialize() first."
+            logger.error(err)
+            raise RuntimeError(err)
 
         # Prepare data for Chroma
         ids = []
@@ -186,11 +208,14 @@ class ChromaVectorStore(VectorStoreBackend):
             embeddings=embeddings,
             metadatas=metadatas
         )
+        logger.info("Embddings inserted successfully")
 
     def get_all_embeddings(self) -> List[Dict[str, Any]]:
         """Get all embeddings from the Chroma collection."""
         if not self.collection:
-            raise RuntimeError("Chroma collection not initialized. Call initialize() first.")
+            err = "Chroma collection not initialized. Call initialize() first."
+            logger.error(err)
+            raise RuntimeError(err)
 
         results = self.collection.get(
             include=['documents', 'embeddings', 'metadatas']
@@ -210,6 +235,7 @@ class ChromaVectorStore(VectorStoreBackend):
         if self.client and self.collection:
             try:
                 self.client.delete_collection(name=self.collection_name)
+                logger.debug("Collection: %s deleted.", self.collection_name)
             except Exception: # pylint: disable=broad-exception-caught
                 pass  # Collection might not exist
 
@@ -231,10 +257,12 @@ class VectorStoreFactory:
         """
         if backend_type.lower() == 'sqlite':
             db_path = kwargs.get('db_path', Path('assets/kb/embeddings/embeddings.db'))
+            logger.info("SQLite vector db detected at %s.", db_path)
             return SQLiteVectorStore(db_path)
 
         if backend_type.lower() == 'chroma':
             collection_name = kwargs.get('collection_name', 'rag_collection')
+            logger.info("Chroma vector db collection: %s detected", collection_name)
             persist_directory = kwargs.get('persist_directory')
             chroma_client_url = kwargs.get('chroma_client_url')
 
@@ -247,5 +275,9 @@ class VectorStoreFactory:
                 chroma_client_url=chroma_client_url
             )
 
-        raise ValueError(f"Unsupported vector store backend: {backend_type}. "
-                        f"Supported backends: sqlite, chroma")
+        err = (
+            f"Unsupported vector store backend: {backend_type}. "
+            f"Supported backends: sqlite, chroma"
+            )
+        logger.error(err)
+        raise ValueError(err)
