@@ -187,7 +187,7 @@ class Augmenter:
         self, prompt: str, temperature: float = 0.25, max_new_tokens: int = 200
         ) -> str:
         """Call Hugging Face inference API."""
-        logger.debug("Calling Hugging Face API")
+        logger.debug("Calling %s through Hugging Face API", self.model_name)
         try:
             # Use the InferenceClient to generate text using chat completions
             completion = self.client.chat.completions.create(
@@ -208,7 +208,6 @@ class Augmenter:
         except Exception as e:
             # Provide helpful error message for common issues
             error_str = str(e).lower()
-            print(error_str)
             if "404" in error_str or "not found" in error_str or "stopiteration" in error_str:
                 err_msg = (
                     f"Model '{self.model_name}' is not available on Hugging Face's inference API. "
