@@ -4,12 +4,14 @@
 
 from __future__ import annotations
 import sys
+import logging
 import types
 from typing import List
 from unittest.mock import Mock
 import numpy as np
 import pytest
 from RAGToolBox.embeddings import Embeddings
+from RAGToolBox.logging import RAGTBLogger, LoggingConfig
 
 # -----------------------
 # Validation tests
@@ -120,14 +122,20 @@ def test_embed_openai_retries_then_success(monkeypatch) -> None:
     # Backoff uses 2 ** attempt for attempt=0,1 on failures
     assert sleep_calls == [1, 2]  # 2**0, 2**1
 
-def test_embed_openai_exhausts_retries(monkeypatch) -> None:
+def test_embed_openai_exhausts_retries(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
     """Test embed_openai erros with exhuasted retries"""
+    caplog.set_level(logging.DEBUG)
+    RAGTBLogger.setup_logging(LoggingConfig(console_level="DEBUG", log_file=None, force=False))
     _client, _ = _install_fake_openai(monkeypatch, fail_first_n=10)  # more than retries
     monkeypatch.setattr("time.sleep", lambda _s: None)
 
     with pytest.raises(RuntimeError) as exc:
         Embeddings._embed_openai(["only"], max_retries=3)
-    assert "Failed to embed after multiple retries" in str(exc.value)
+    err_msg = "Failed to embed after multiple retries"
+    assert err_msg in str(exc.value)
+    assert err_msg in caplog.text
 
 # -----------------------
 # Public dispatchers
@@ -155,10 +163,15 @@ def test_embed_texts_dispatch_openai(monkeypatch) -> None:
     assert out == [[0.1, 0.2, 0.3, 0.4, 0.5]]
     assert client.calls == 1
 
-def test_embed_texts_invalid_model() -> None:
+def test_embed_texts_invalid_model(caplog: pytest.LogCaptureFixture) -> None:
     """Test embed_texts throws error with invalid model"""
-    with pytest.raises(ValueError):
+    caplog.set_level(logging.DEBUG)
+    RAGTBLogger.setup_logging(LoggingConfig(console_level="DEBUG", log_file=None, force=False))
+    with pytest.raises(ValueError) as exc:
         Embeddings.embed_texts("nope", ["q"])
+    err_msg = "Embedding model 'nope' not supported."
+    assert err_msg in str(exc.value)
+    assert err_msg in caplog.text
 
 def test_embed_one_fastembed(monkeypatch) -> None:
     """Test embed_one with fastembed dispath works"""

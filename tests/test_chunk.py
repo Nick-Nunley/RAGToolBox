@@ -1,5 +1,6 @@
 """Tests associated with Chunk module"""
 
+import logging
 from typing import List
 import pytest
 
@@ -11,6 +12,7 @@ from RAGToolBox.chunk import (
     SectionAwareChunker,
     HierarchicalChunker
 )
+from RAGToolBox.logging import RAGTBLogger, LoggingConfig
 
 # Test data
 SAMPLE_TEXT = (
@@ -187,16 +189,26 @@ def test_section_aware_chunker_break_point_selection() -> None:
             assert not chunk.strip().endswith('Th')
             assert not chunk.strip().endswith('Thi')
 
-def test_section_aware_chunker_parameter_validation() -> None:
+def test_section_aware_chunker_parameter_validation(
+    caplog: pytest.LogCaptureFixture
+    ) -> None:
     """Test invalid parameters are handled for section_aware chunker"""
-    with pytest.raises(ValueError):
-        SectionAwareChunker(max_chunk_size=0)
+    caplog.set_level(logging.DEBUG)
+    RAGTBLogger.setup_logging(LoggingConfig(console_level="DEBUG", log_file=None, force=False))
 
-    with pytest.raises(ValueError):
-        SectionAwareChunker(max_chunk_size=100, overlap=-1)
+    err_1 = "'max_chunk_size' must be positive when using 'SectionAwareChunker'"
+    err_2 = "'overlap' must be non-negative when using 'SectionAwareChunker'"
+    err_3 = "'overlap' must be less than 'max_chunk_size' when using 'SectionAwareChunker'"
 
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match=err_1):
+        SectionAwareChunker(max_chunk_size=-10)
+    with pytest.raises(ValueError, match=err_2):
+        SectionAwareChunker(overlap=-1)
+    with pytest.raises(ValueError, match=err_3):
         SectionAwareChunker(max_chunk_size=10, overlap=100)
+    assert err_1 in caplog.text
+    assert err_2 in caplog.text
+    assert err_3 in caplog.text
 
 def test_section_aware_chunker_protocol_compliance() -> None:
     """Test output dtype compliance of section_aware chunker"""
@@ -488,6 +500,35 @@ def test_sliding_window_chunker_no_word_clipping() -> None:
                     )
     # Also check that the full word is present in at least one chunk
     assert any('boundaryword' in chunk for chunk in chunks)
+
+def test_sliding_window_chunker_input_errors_handled(caplog: pytest.LogCaptureFixture) -> None:
+    """Test that SlidingWindowChunker inialization handles input errors correctly"""
+    caplog.set_level(logging.DEBUG)
+    RAGTBLogger.setup_logging(LoggingConfig(console_level="DEBUG", log_file=None, force=False))
+
+    err_1 = "'window_size' must be positive when using 'SlidingWindowChunker'"
+    err_2 = "'overlap' must be non-negative when using 'SlidingWindowChunker'"
+    err_3 = "'overlap' must be less than 'window_size' when using 'SlidingWindowChunker'"
+
+    with pytest.raises(ValueError, match=err_1):
+        SlidingWindowChunker(window_size=-10)
+    with pytest.raises(ValueError, match=err_2):
+        SlidingWindowChunker(overlap=-1)
+    with pytest.raises(ValueError, match=err_3):
+        SlidingWindowChunker(window_size=10, overlap=100)
+    assert err_1 in caplog.text
+    assert err_2 in caplog.text
+    assert err_3 in caplog.text
+
+def test_hierarchical_chunker_input_errors_handled(caplog: pytest.LogCaptureFixture) -> None:
+    """Test that HierarchicalChunker inialization handles input errors correctly"""
+    caplog.set_level(logging.DEBUG)
+    RAGTBLogger.setup_logging(LoggingConfig(console_level="DEBUG", log_file=None, force=False))
+
+    err_msg = "At least one chunker must be provided when using 'HierarchicalChunker'"
+    with pytest.raises(ValueError, match=err_msg):
+        HierarchicalChunker(chunkers=[])
+    assert err_msg in caplog.text
 
 # =====================
 # INTEGRATION TESTS

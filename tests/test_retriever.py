@@ -1,7 +1,9 @@
 """Tests associated with Retriever module"""
 # pylint: disable=protected-access
+# pylint: disable=unused-import
 
 import os
+import logging
 import tempfile
 import json
 import sqlite3
@@ -11,12 +13,51 @@ import pytest
 import numpy as np
 from RAGToolBox.vector_store import SQLiteVectorStore
 from RAGToolBox.retriever import Retriever
+from RAGToolBox.logging import LoggingConfig, RAGTBLogger
 
 @pytest.fixture(autouse=True)
 def no_sqlite_init(monkeypatch):
     """Patch to prevent SQLiteVectorStore init method"""
     # prevent it from creating any files on disk
     monkeypatch.setattr(SQLiteVectorStore, "initialize", lambda self: None)
+
+def _make_fastembed_db(rows: list[tuple[str, str, dict, str]]) -> str:
+    """
+    Create a temporary SQLite DB and populate it with real fastembed vectors.
+
+    rows: list of (id, chunk_text, metadata_dict, source)
+    returns: path to the created .db (caller is responsible for os.unlink)
+    """
+    from fastembed import TextEmbedding
+    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp:
+        db_path = tmp.name
+
+    conn = sqlite3.connect(db_path)
+    cur = conn.cursor()
+    cur.execute(
+        """
+        CREATE TABLE embeddings (
+            id TEXT PRIMARY KEY,
+            chunk TEXT,
+            embedding TEXT,
+            metadata TEXT,
+            source TEXT
+        )
+        """
+    )
+
+    model = TextEmbedding()
+    for rid, chunk_text, meta, src in rows:
+        vec = list(model.embed(chunk_text))[0]
+        cur.execute(
+            ("INSERT INTO embeddings (id, chunk, embedding, "
+             "metadata, source) VALUES (?, ?, ?, ?, ?)"),
+            (rid, chunk_text, json.dumps(vec.tolist()), json.dumps(meta), src),
+        )
+
+    conn.commit()
+    conn.close()
+    return db_path
 
 
 # =====================
@@ -507,5 +548,87 @@ def test_retriever_full_integration() -> None: # pylint: disable=too-many-locals
 
     finally:
         # Cleanup
+        if os.path.exists(db_path):
+            os.unlink(db_path)
+
+def test_retriever_integration_verbose_logging(caplog: pytest.LogCaptureFixture) -> None:
+    """Full retrieval flow with verbose (DEBUG) console logging; no log file."""
+    # Skip if fastembed is not installed
+    try:
+        from fastembed import TextEmbedding
+    except ImportError:
+        pytest.skip("fastembed package not available")
+
+    caplog.set_level(logging.DEBUG)
+    RAGTBLogger.setup_logging(LoggingConfig(console_level="DEBUG", log_file=None, force=False))
+
+    try:
+        # Create test chunks
+        rows_text = [
+            ("id1", "ultrasound therapy brain stimulation", {"title": "Ultrasound"}, "a.txt"),
+            ("id2", "medical device regulations", {"title": "Devices"}, "b.txt"),
+        ]
+
+        # Generate real 384-D embeddings for the chunks
+        db_path = _make_fastembed_db(rows_text)
+
+        # Run retrieval end-to-end
+        retriever = Retriever(embedding_model="fastembed", db_path=Path(db_path))
+        results = retriever.retrieve("ultrasound therapy", top_k=2)
+
+        # Sanity checks
+        assert isinstance(results, list)
+        assert len(results) == 2
+
+        # Assert important log lines were emitted
+        log_text = caplog.text
+        assert "Initializing Retriever" in log_text
+        assert "Embedding model 'fastembed' validated" in log_text
+        assert "Retrieve called" in log_text
+        assert "Computing similarities" in log_text
+        assert "Retrieved" in log_text
+    finally:
+        if os.path.exists(db_path):
+            os.unlink(db_path)
+
+def test_retriever_integration_verbose_logging_to_file(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+    """Full retrieval flow with DEBUG console + DEBUG file logging; verifies file output."""
+    try:
+        from fastembed import TextEmbedding
+    except ImportError:
+        pytest.skip("fastembed package not available")
+
+    caplog.set_level(logging.DEBUG)
+
+    log_file = tmp_path / "retriever.log"
+    RAGTBLogger.setup_logging(LoggingConfig(
+        console_level="DEBUG", log_file=str(log_file), file_level="DEBUG", force=True
+        ))
+
+    try:
+        rows_text = [
+            ("id1", "neuroscience brain imaging studies", {"title": "Neuro"}, "n.txt"),
+            ("id2", "cancer treatment protocols", {"title": "Cancer"}, "c.txt"),
+        ]
+
+        db_path = _make_fastembed_db(rows_text)
+
+        retriever = Retriever(embedding_model="fastembed", db_path=Path(db_path))
+        _ = retriever.retrieve("brain imaging", top_k=2)
+
+        # File should exist and contain DEBUG/INFO lines
+        assert log_file.exists()
+        content = log_file.read_text()
+        for snippet in [
+            "Initializing Retriever",
+            "Embedding model 'fastembed' validated",
+            "Retrieve called",
+            "Computing similarities",
+            "Retrieved",
+        ]:
+            assert snippet in content
+    finally:
         if os.path.exists(db_path):
             os.unlink(db_path)

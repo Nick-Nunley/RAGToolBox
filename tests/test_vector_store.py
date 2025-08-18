@@ -5,6 +5,7 @@
 import os
 import tempfile
 import sqlite3
+import logging
 from pathlib import Path
 from unittest.mock import patch
 import pytest
@@ -13,6 +14,23 @@ from RAGToolBox.vector_store import VectorStoreFactory, SQLiteVectorStore, Chrom
 from RAGToolBox.index import Indexer, IndexerConfig
 from RAGToolBox.retriever import Retriever
 from RAGToolBox.chunk import HierarchicalChunker, SectionAwareChunker, SlidingWindowChunker
+from RAGToolBox.logging import RAGTBLogger, LoggingConfig
+
+# Mocks and helpers
+
+class DummyClient:
+    """Mock client"""
+    def __init__(self):
+        self.called_with = None
+    def delete_collection(self, name: str) -> None:
+        """Mock delete_collection method"""
+        self.called_with = name
+
+class DummyClientBoom:
+    """Mock Client with broken method"""
+    def delete_collection(self, name: str) -> None:
+        """RuntimeError delete_collection method"""
+        raise RuntimeError("boom")
 
 
 # =====================
@@ -55,8 +73,13 @@ def test_sqlite_vector_store_initialize() -> None:
             os.unlink(db_path)
 
 
-def test_sqlite_vector_store_insert_embeddings() -> None:
+def test_sqlite_vector_store_insert_embeddings(
+    caplog: pytest.LogCaptureFixture
+    ) -> None:
     """Test SQLiteVectorStore insert_embeddings method"""
+    caplog.set_level(logging.DEBUG)
+    RAGTBLogger.setup_logging(LoggingConfig(console_level="DEBUG", log_file=None, force=False))
+
     with tempfile.NamedTemporaryFile(suffix='.db', delete=False) as tmp_file:
         db_path = Path(tmp_file.name)
 
@@ -90,6 +113,7 @@ def test_sqlite_vector_store_insert_embeddings() -> None:
         conn.close()
 
         assert count == 2
+        assert 'Embddings inserted successfully' in caplog.text
 
     finally:
         if db_path.exists():
@@ -184,10 +208,14 @@ def test_vector_store_factory_chroma() -> None:
     assert vector_store.persist_directory == persist_dir
 
 
-def test_vector_store_factory_invalid_backend() -> None:
+def test_vector_store_factory_invalid_backend(
+    caplog: pytest.LogCaptureFixture
+    ) -> None:
     """Test VectorStoreFactory with invalid backend"""
-    with pytest.raises(ValueError, match="Unsupported vector store backend"):
+    err = "Unsupported vector store backend"
+    with pytest.raises(ValueError, match=err):
         VectorStoreFactory.create_backend('invalid_backend')
+    assert err in caplog.text
 
 
 def test_indexer_with_sqlite_backend() -> None:
@@ -234,6 +262,54 @@ def test_indexer_with_chroma_backend() -> None:
         assert isinstance(indexer.vector_store, ChromaVectorStore)
         assert indexer.vector_store.collection_name == 'test_collection'
         assert indexer.vector_store.persist_directory == persist_dir
+
+
+def test_chroma_insert_without_initialization(
+    caplog: pytest.LogCaptureFixture
+    ) -> None:
+    """Test that ChromaVectorStore.insert_embeddings errors out if not initialized"""
+    caplog.set_level(logging.DEBUG)
+    RAGTBLogger.setup_logging(LoggingConfig(console_level="DEBUG", log_file=None, force=False))
+
+    # Test data
+    chunked_results = [
+        {
+            'chunk': 'Test chunk 1',
+            'metadata': {'title': 'Test 1', 'author': 'Author 1'},
+            'name': 'test1.txt'
+        },
+        {
+            'chunk': 'Test chunk 2',
+            'metadata': {'title': 'Test 2', 'author': 'Author 2'},
+            'name': 'test2.txt'
+        }
+    ]
+    embeddings = [[0.1, 0.2, 0.3], [0.4, 0.5, 0.6]]
+
+    test_vs = ChromaVectorStore()
+
+    err_msg = "Chroma collection not initialized"
+    with pytest.raises(RuntimeError, match=err_msg):
+        test_vs.insert_embeddings(
+            chunked_results=chunked_results,
+            embeddings=embeddings
+            )
+    assert err_msg in caplog.text
+
+
+def test_chroma_get_embeddings_without_initialization(
+    caplog: pytest.LogCaptureFixture
+    ) -> None:
+    """Test that ChromaVectorStore.get_all_embeddings errors out if not initialized"""
+    caplog.set_level(logging.DEBUG)
+    RAGTBLogger.setup_logging(LoggingConfig(console_level="DEBUG", log_file=None, force=False))
+
+    test_vs = ChromaVectorStore()
+
+    err_msg = "Chroma collection not initialized"
+    with pytest.raises(RuntimeError, match=err_msg):
+        test_vs.get_all_embeddings()
+    assert err_msg in caplog.text
 
 
 # =====================
@@ -425,12 +501,53 @@ def test_sqlite_vector_store_invalid_metadata() -> None:
             os.unlink(db_path)
 
 
-def test_chroma_vector_store_import_error() -> None:
+def test_chroma_vector_store_import_error(
+    caplog: pytest.LogCaptureFixture
+    ) -> None:
     """Test ChromaVectorStore when ChromaDB is not installed"""
+    caplog.set_level(logging.DEBUG)
+    RAGTBLogger.setup_logging(LoggingConfig(console_level="DEBUG", log_file=None, force=False))
+
+    err = "ChromaDB is not installed"
     # Mock import to simulate missing ChromaDB
     with patch('builtins.__import__', side_effect=ImportError("No module named 'chromadb'")):
-        with pytest.raises(ImportError, match="ChromaDB is not installed"):
+        with pytest.raises(ImportError, match=err):
             ChromaVectorStore().initialize()
+    assert err in caplog.text
+
+
+def test_chroma_delete_collection_success(caplog: pytest.LogCaptureFixture) -> None:
+    """Test chroma delete_collection succeeds"""
+    caplog.set_level(logging.DEBUG)
+    RAGTBLogger.setup_logging(LoggingConfig(console_level="DEBUG", log_file=None, force=False))
+
+    vs = ChromaVectorStore(collection_name="my_collection")
+    vs.client = DummyClient()
+    vs.collection = object()
+
+    vs.delete_collection()
+
+    assert vs.client.called_with == "my_collection"
+    assert "Collection: my_collection deleted." in caplog.text
+
+def test_chroma_delete_collection_handles_exception() -> None:
+    """Test ChromaVectorStore handles exception with delete_collection"""
+    vs = ChromaVectorStore(collection_name="err_collection")
+    vs.client = DummyClientBoom()
+    vs.collection = object()
+
+    # Should swallow the exception (per implementation) and not raise
+    vs.delete_collection()
+
+def test_chroma_delete_collection_noop_when_uninitialized() -> None:
+    """Test ChromaVectorStore returns out uninitialized when calling delete_collection"""
+    vs = ChromaVectorStore(collection_name="unused_collection")
+    # Leave client and/or collection as None
+    vs.client = None
+    vs.collection = None
+
+    # Should be a no-op without raising
+    vs.delete_collection()
 
 
 # =====================

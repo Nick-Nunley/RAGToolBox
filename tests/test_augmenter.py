@@ -3,6 +3,8 @@
 # pylint: disable=unused-import
 
 import os
+import logging
+from typing import List, Dict, Union
 from unittest.mock import patch, MagicMock, Mock
 import pytest
 
@@ -15,6 +17,23 @@ except ImportError:
     TRANSFORMERS_AVAILABLE = False
 
 from RAGToolBox.augmenter import Augmenter
+from RAGToolBox.logging import LoggingConfig, RAGTBLogger
+
+
+# Helpers and mocks
+
+def _stub_call_hf(
+    self, prompt: str, temperature: float, max_new_tokens: int # pylint: disable=unused-argument
+    ) -> str:
+    # We can assert prompt has our chunk text if desired:
+    assert "Context 1: chunk A about ultrasound therapy" in prompt
+    return "stubbed-answer"
+
+def _fake_chunks() -> List[Dict[str, Union[str, Dict[str, str]]]]:
+    return [
+        {"data": "chunk A about ultrasound therapy", "metadata": {"id": "A"}},
+        {"data": "chunk B about brain stimulation", "metadata": {"id": "B"}},
+    ]
 
 
 # =====================
@@ -40,6 +59,20 @@ def test_augmenter_initialization_custom():
     assert augmenter.model_name == "test-model"
     assert augmenter.api_key == "custom_key"
     assert augmenter.use_local is False
+
+
+def test_augmenter_initialization_prompt_type_error(
+    caplog: pytest.LogCaptureFixture
+    ) -> None:
+    """Test Augmenter initialization with invalid prompt type"""
+    caplog.set_level(logging.DEBUG)
+    RAGTBLogger.setup_logging(LoggingConfig(console_level="DEBUG", log_file=None, force=False))
+
+    with pytest.raises(ValueError) as exc:
+        Augmenter(prompt_type='Invalid prompt')
+    err_msg = 'Invalid prompt_type'
+    assert err_msg in str(exc.value)
+    assert err_msg in caplog.text
 
 
 def test_augmenter_initialization_no_api_key():
@@ -625,3 +658,67 @@ def test_augmenter_custom_parameters():
         # Verify default parameters were used
         assert call_args[1]['temperature'] == 0.25
         assert call_args[1]['max_tokens'] == 200
+
+def test_augmenter_integration_verbose_logging_with_context(
+    caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+    """
+    Test full flow for Augmenter.generate_response with DEBUG console logging.
+    We stub out HF client init and the actual API call so there are no external deps.
+    """
+    caplog.set_level(logging.DEBUG)
+    # Keep existing handlers; just set console to DEBUG for this test
+    RAGTBLogger.setup_logging(LoggingConfig(console_level="DEBUG", log_file=None, force=False))
+
+    # Avoid importing huggingface_hub in the test
+    monkeypatch.setattr(Augmenter, "_initialize_api_client", lambda self: None)
+
+    # Stub the actual API call to return a canned answer and ensure the log line is emitted
+    monkeypatch.setattr(Augmenter, "_call_huggingface_api", _stub_call_hf)
+
+    # Instantiate the augmenter (non-local path)
+    aug = Augmenter(
+        model_name="fake/model",
+        api_key="dummy-key",
+        use_local=False,
+        prompt_type="default",
+    )
+
+    # Run end-to-end with context
+    out = aug.generate_response(
+        "ultrasound therapy", _fake_chunks(), temperature=0.2, max_new_tokens=32
+        )
+
+    assert out == "stubbed-answer"
+    log_text = caplog.text
+    assert "Valid response from LLM generated" in log_text
+
+
+def test_augmenter_integration_verbose_logging_no_context(
+    caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+    """
+    Same test as above but with no retrieved chunks -> should WARN and return the fallback message.
+    """
+    caplog.set_level(logging.DEBUG)
+    RAGTBLogger.setup_logging(LoggingConfig(console_level="DEBUG", log_file=None, force=False))
+
+    # Avoid HF client import/creation
+    monkeypatch.setattr(Augmenter, "_initialize_api_client", lambda self: None)
+
+    aug = Augmenter(
+        model_name="fake/model",
+        api_key="dummy-key",
+        use_local=False,
+        prompt_type="default",
+    )
+
+    out = aug.generate_response("anything", retrieved_chunks=[])
+
+    # The fallback message your code returns/logs
+    expected_msg = (
+        "I don't have enough information to answer your question. "
+        "Please try rephrasing or expanding your query."
+    )
+    assert expected_msg in out
+    assert expected_msg in caplog.text

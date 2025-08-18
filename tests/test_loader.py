@@ -1,7 +1,10 @@
 """Tests associated with Loader module"""
+# pylint: disable=protected-access
 
-import os
+import logging
 from typing import Any
+from unittest.mock import Mock
+from pathlib import Path
 import pytest
 import requests
 import pdfplumber
@@ -15,6 +18,8 @@ from RAGToolBox.loader import (
     PDFLoader,
     UnknownLoader
     )
+
+from RAGToolBox.logging import RAGTBLogger, LoggingConfig
 
 # Helpers and Mocks
 class DummyPage:
@@ -55,7 +60,10 @@ class DummyHandle:
         """Method to 'close' file"""
 
 
-# Unit tests
+# =====================
+# UNIT TESTS
+# =====================
+
 def test_detect_loader_txt() -> None:
     """Test detect_loader detects .txt extension"""
     cls = BaseLoader.detect_loader('http://example.com/file.txt', b'hello')
@@ -87,62 +95,103 @@ def test_detect_loader_ncbi() -> None:
     cls = BaseLoader.detect_loader(url, b'ignored')
     assert cls is NCBILoader
 
-def test_detect_loader_local_txt() -> None:
+def test_detect_loader_local_txt(tmp_path: Path) -> None:
     """Test detect_loader handles a local .txt filepath"""
-    # Mock file existence check
-    original_exists = os.path.exists
+    p = tmp_path / "file.txt"
+    p.write_text("hello", encoding="utf-8")
+    cls = BaseLoader.detect_loader(str(p), b"ignored")
+    assert cls is TextLoader
 
-    def mock_exists(path: str) -> bool:
-        """Function to check for existence of a mock file"""
-        if path == '/path/to/file.txt':
-            return True
-        return original_exists(path)
-
-    # Temporarily replace os.path.exists
-    os.path.exists = mock_exists
-    try:
-        cls = BaseLoader.detect_loader('/path/to/file.txt', b'hello world')
-        assert cls is TextLoader
-    finally:
-        os.path.exists = original_exists
-
-def test_detect_loader_local_pdf() -> None:
+def test_detect_loader_local_pdf(tmp_path: Path) -> None:
     """Test detect_loader handles a local .pdf filepath"""
-    # Mock file existence check
-    original_exists = os.path.exists
+    p = tmp_path / "document.pdf"
+    p.write_bytes(b"%PDF-1.4 fake pdf")
+    cls = BaseLoader.detect_loader(str(p), b"ignored")
+    assert cls is PDFLoader
 
-    def mock_exists(path: str) -> bool:
-        """Function to check for existence of a mock PDF"""
-        if path == '/path/to/document.pdf':
-            return True
-        return original_exists(path)
-
-    # Temporarily replace os.path.exists
-    os.path.exists = mock_exists
-    try:
-        cls = BaseLoader.detect_loader('/path/to/document.pdf', b'%PDF-1.4')
-        assert cls is PDFLoader
-    finally:
-        os.path.exists = original_exists
-
-def test_detect_loader_local_html() -> None:
+def test_detect_loader_local_html(tmp_path: Path) -> None:
     """Test detect_loader handles a local .html filepath"""
-    # Mock file existence check
-    original_exists = os.path.exists
+    p = tmp_path / "page.html"
+    p.write_text("<html><body>content</body></html>", encoding="utf-8")
+    cls = BaseLoader.detect_loader(str(p), b"ignored")
+    assert cls is HTMLLoader
 
-    def mock_exists(path: str) -> bool:
-        """Function to check for existence of a mock HTML file"""
-        if path == '/path/to/page.html':
-            return True
-        return original_exists(path)
+def test_detect_loader_local_unknown_html_by_content(tmp_path: Path) -> None:
+    """Local file with unknown extension should be detected as HTML via content sniffing."""
+    p = tmp_path / "blob.bin"
+    p.write_bytes(b"irrelevant")
+    sniff = b"  \n\t<!DoCtYpe hTmL><html><body>hi</body></html>"
+    cls = BaseLoader.detect_loader(str(p), sniff)
+    assert cls is HTMLLoader
 
-    # Temporarily replace os.path.exists
-    os.path.exists = mock_exists
-    try:
-        cls = BaseLoader.detect_loader('/path/to/page.html', b'<html><body>content</body></html>')
-        assert cls is HTMLLoader
-    finally:
-        os.path.exists = original_exists
+def test_detect_loader_local_unknown_pdf_by_content(tmp_path: Path) -> None:
+    """Test detect_loader handles unknown local file and falls back to sniffing"""
+    p = tmp_path / "blob.bin"
+    p.write_bytes(b"")
+    cls = BaseLoader.detect_loader(str(p), b"%PDF")  # content sniff should pick PDF
+    assert cls is PDFLoader
+
+def test_handle_local_detection_unknown_fallback_logs_warning(
+    caplog: pytest.LogCaptureFixture
+    ) -> None:
+    """Test that _handle_local_detection with unknown logs fallback"""
+    caplog.set_level(logging.WARNING)
+    # Neither extension nor content looks recognizable
+    cls = BaseLoader._handle_local_file_detection("data.bin", b"\x00\x01\x02\x03binary")
+    assert cls is TextLoader
+
+    # Ensure we warned and mentioned fallback to TextLoader
+    assert any(
+        "Unknown format detected while loading" in rec.getMessage()
+        and "Falling back to TextLoader" in rec.getMessage()
+        for rec in caplog.records
+    )
+
+def test_base_loader_fetch_error_handling(
+    caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+    """Test BaseLoader throws proper fetching errors"""
+    caplog.set_level(logging.DEBUG)
+    RAGTBLogger.setup_logging(LoggingConfig(console_level="DEBUG", log_file=None, force=False))
+    test_loader = BaseLoader(source = '', output_dir = '')
+
+    def dummy_get(url: str, timeout: float) -> None: # pylint: disable=redefined-builtin
+        """Mock fetch function to return timeout error"""
+        raise requests.Timeout("simulated timeout")
+    monkeypatch.setattr("RAGToolBox.loader.requests.get", dummy_get)
+
+    with pytest.raises(TimeoutError) as exc:
+        test_loader.fetch()
+    err_msg = 'Timed out after'
+    assert err_msg in str(exc.value)
+    assert err_msg in caplog.text
+
+    fake_response = Mock()
+    def fake_raise():
+        raise requests.HTTPError("500 Server Error")
+    fake_response.raise_for_status = fake_raise
+    monkeypatch.setattr("RAGToolBox.loader.requests.get", lambda url, timeout: fake_response)
+
+    with pytest.raises(RuntimeError) as exc:
+        test_loader.fetch()
+    err_msg = 'Error fetching'
+    assert err_msg in str(exc.value)
+    assert err_msg in caplog.text
+
+def test_ncbi_loader_with_malform_source(
+    caplog: pytest.LogCaptureFixture
+    ) -> None:
+    """Test that NCBILoader._check_available_sources errors on malformed source"""
+    caplog.set_level(logging.DEBUG)
+    RAGTBLogger.setup_logging(LoggingConfig(console_level="DEBUG", log_file=None, force=False))
+
+    loader = NCBILoader("https://pmc.ncbi.nlm.nih.gov/articles/PMC123456/", "out")
+
+    with pytest.raises(ValueError) as exc:
+        loader._check_available_sources('bad_source')
+    err = "is not supported by NCBILoader. See available sources"
+    assert err in caplog.text
+    assert err in str(exc.value)
 
 def test_ncbi_loader_fetch_success(monkeypatch: Any) -> None:
     """Test NCBILoader fetches properly"""
@@ -167,8 +216,47 @@ def test_ncbi_loader_fetch_success(monkeypatch: Any) -> None:
     assert 'Abstract text' in loader.text
     assert calls[0] == ('pmc', 'PMC999999', 'full', 'xml')
 
-def test_ncbi_loader_fetch_failure(monkeypatch: Any) -> None:
+def test_ncbi_loader_fetch_abstract_only(
+    caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+    """Test NCBILoader fetch logs abstract only warning"""
+    caplog.set_level(logging.DEBUG)
+    RAGTBLogger.setup_logging(LoggingConfig(console_level="DEBUG", log_file=None, force=False))
+
+    calls = []
+    def dummy_efetch(
+        db: str, id: str, rettype: str, retmode: str # pylint: disable=redefined-builtin
+        ) -> DummyHandle:
+        """Mock fetch function for Entrez.efetch"""
+        calls.append((db, id, rettype, retmode))
+        # Minimal valid PMC XML with an abstract
+        xml = b"""<?xml version="1.0"?>
+        <article>
+        <front>
+            <notes>Publisher note: This journal does not allow downloading of the full text.</notes>
+        </front>
+        <abstract>Abstract text</abstract>
+        </article>"""
+        return DummyHandle(xml)
+    monkeypatch.setattr(Entrez, 'efetch', dummy_efetch)
+
+    url = 'https://pmc.ncbi.nlm.nih.gov/articles/PMC999999/'
+    loader = NCBILoader(url, 'out')
+    loader.fetch()
+    assert loader.raw_content is not None
+    assert b'Abstract text' in loader.raw_content # type: ignore[union-attr]
+    assert 'Warning: Full text not available for' in caplog.text
+
+    loader.convert()
+    assert 'Abstract text' in loader.text
+    assert calls[0] == ('pmc', 'PMC999999', 'full', 'xml')
+
+def test_ncbi_loader_fetch_failure(
+    caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
     """Test NCBILoader raises RuntimeError for broken PMC URL"""
+    caplog.set_level(logging.DEBUG)
+    RAGTBLogger.setup_logging(LoggingConfig(console_level="DEBUG", log_file=None, force=False))
     def dummy_efetch(
         db: str, id: str, rettype: str, retmode: str # pylint: disable=redefined-builtin
         ) -> None:
@@ -180,7 +268,164 @@ def test_ncbi_loader_fetch_failure(monkeypatch: Any) -> None:
     loader = NCBILoader(url, 'out')
     with pytest.raises(RuntimeError) as exc:
         loader.fetch()
-    assert 'Entrez fetch failed for PMC000000' in str(exc.value)
+    err_msg = 'Entrez fetch failed for PMC000000'
+    assert err_msg in str(exc.value)
+    assert err_msg in caplog.text
+
+def test_ncbi_loader_fetch_with_nonstandard_link(
+    caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+    """Test NCBILoader warns about not finding PMC or PubMed in link"""
+    caplog.set_level(logging.DEBUG)
+    RAGTBLogger.setup_logging(LoggingConfig(console_level="DEBUG", log_file=None, force=False))
+
+    calls = []
+    def dummy_efetch(
+        db: str, id: str, rettype: str, retmode: str # pylint: disable=redefined-builtin
+        ) -> DummyHandle:
+        """Mock fetch function for Entrez.efetch"""
+        calls.append((db, id, rettype, retmode))
+        xml = b'<?xml version="1.0"?><article><abstract>Abstract text</abstract></article>'
+        return DummyHandle(xml)
+    monkeypatch.setattr(Entrez, 'efetch', dummy_efetch)
+
+    url = 'https://test.gov/articles/PMC000000/'
+    loader = NCBILoader(url, 'out')
+    loader.fetch()
+    assert "Detected NCBI format, but could not find 'pmc.' or 'pubmed.' strings" in caplog.text
+    assert loader.raw_content is not None
+    assert b'Abstract text' in loader.raw_content # type: ignore[union-attr]
+
+    loader.convert()
+    assert 'Abstract text' in loader.text
+    assert calls[0] == ('pmc', 'PMC000000', 'full', 'xml')
+
+def test_ncbi_loader_fetch_pdf_success(
+    caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+    """Test NCBI loader extracts PDF links"""
+    caplog.set_level(logging.DEBUG)
+    RAGTBLogger.setup_logging(LoggingConfig(console_level="DEBUG", log_file=None, force=False))
+    # Minimal PMC XML with a relative PDF self-uri to exercise URL building
+    xml = b"""<?xml version="1.0"?>
+    <article xmlns:xlink="http://www.w3.org/1999/xlink">
+      <front>
+        <article-meta>
+          <self-uri content-type="pmc-pdf" xlink:href="paper.pdf"/>
+        </article-meta>
+      </front>
+    </article>"""
+
+    # 1) Entrez.efetch -> returns XML handle
+    monkeypatch.setattr(
+        Entrez, "efetch", lambda db, id, rettype, retmode: DummyHandle(xml) # type: ignore
+        )
+
+    # 2) requests.get for PDF download -> returns bytes that look like a PDF
+    def mock_get(
+        url: str, timeout: float # pylint: disable=redefined-builtin, unused-argument
+        ) -> DummyResponse:
+        assert url.endswith("/pdf/paper.pdf")
+        return DummyResponse(b"%PDF-1.4 fake-pdf-bytes")
+    monkeypatch.setattr("RAGToolBox.loader.requests.get", mock_get)
+
+    # 3) pdfplumber.open -> return a dummy PDF with pages so convert() concatenates text
+    def mock_pdf_open(_file_obj: Any):
+        return DummyPDF([DummyPage("PDF Page 1"), DummyPage("PDF Page 2")])
+    monkeypatch.setattr(pdfplumber, "open", mock_pdf_open)
+
+    url = "https://pmc.ncbi.nlm.nih.gov/articles/PMC424242/"
+    loader = NCBILoader(url, str(tmp_path))
+    loader.fetch()
+
+    # Assertions
+    assert loader._used_pdf is True
+    assert "PDF Page 1" in loader.text
+    assert "PDF Page 2" in loader.text
+    assert "Attempting to download and extract text from PDF." in caplog.text
+
+def test_ncbi_loader_fetch_pdf_failure_fallback(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+    """Test that PDF downloading is triggered but doesn't work and raises a warning"""
+    caplog.set_level(logging.DEBUG)
+    RAGTBLogger.setup_logging(LoggingConfig(console_level="DEBUG", log_file=None, force=False))
+
+    xml = b"""<?xml version="1.0"?>
+    <article xmlns:xlink="http://www.w3.org/1999/xlink">
+      <front>
+        <article-meta>
+          <self-uri content-type="pmc-pdf" xlink:href="paper.pdf"/>
+        </article-meta>
+      </front>
+    </article>"""
+
+    # 1) Entrez.efetch -> returns XML handle
+    monkeypatch.setattr(
+        Entrez, "efetch", lambda db, id, rettype, retmode: DummyHandle(xml) # type: ignore
+        )
+
+    # 2) Make requests.get (used by _download_pdf) raise via raise_for_status
+    class BadResponse:
+        """Mock response class"""
+        content = b""
+        def raise_for_status(self):
+            """Dummy method to raise HTTP error"""
+            raise requests.HTTPError("simulated 500")
+    monkeypatch.setattr("RAGToolBox.loader.requests.get", lambda url, timeout: BadResponse())
+
+    url = "https://pmc.ncbi.nlm.nih.gov/articles/PMC999000/"
+    loader = NCBILoader(url, "out")
+
+    loader.fetch()
+
+    # Assertions: we fell back
+    assert loader._used_pdf is False
+    assert "Falling back to XML extraction" in caplog.text
+
+def test_ncbi_extract_pdf_url_xml_parse_error(
+    caplog: pytest.LogCaptureFixture
+    ) -> None:
+    """Test _extract_pdf_url_from_xml returns None and logs a warning on XML parse failure."""
+    caplog.set_level(logging.DEBUG)
+    RAGTBLogger.setup_logging(LoggingConfig(console_level="DEBUG", log_file=None, force=False))
+
+    # Minimal NCBILoader instance; source only matters for logging
+    loader = NCBILoader("https://pmc.ncbi.nlm.nih.gov/articles/PMC123456/", "out")
+
+    # Malformed XML to trigger ET.fromstring(...) exception
+    bad_xml = b"<article><self-uri content-type='pmc-pdf' href='file.pdf'></article"
+
+    result = loader._extract_pdf_url_from_xml(bad_xml)
+
+    assert result is None
+    assert "Error parsing XML for PDF link. Returning dtype=None." in caplog.text
+
+def test_ncbi_parse_xml_unknown_root(caplog: pytest.LogCaptureFixture) -> None:
+    """Test _parse_xml_content returns {} and logs a warning for unknown root tag."""
+    caplog.set_level(logging.WARNING)
+    RAGTBLogger.setup_logging(LoggingConfig(console_level="DEBUG", log_file=None, force=False))
+
+    loader = NCBILoader("https://pmc.ncbi.nlm.nih.gov/articles/PMC123456/", "out")
+    # Root tag doesn't match the recognized PMC/PubMed endings
+    loader.raw_content = b"<weirdroot><data/></weirdroot>"
+
+    result = loader._parse_xml_content()
+    assert result == {}
+    assert "Unkonwn XML root tag" in caplog.text
+
+def test_ncbi_parse_xml_malformed_xml(caplog: pytest.LogCaptureFixture) -> None:
+    """Test _parse_xml_content returns None and logs a warning when XML parsing fails."""
+    caplog.set_level(logging.WARNING)
+    RAGTBLogger.setup_logging(LoggingConfig(console_level="DEBUG", log_file=None, force=False))
+
+    loader = NCBILoader("https://pmc.ncbi.nlm.nih.gov/articles/PMC123456/", "out")
+    # Malformed XML to force ET.fromstring(...) to raise
+    loader.raw_content = b"<article><unclosed></article"
+
+    result = loader._parse_xml_content()
+    assert result is None
+    assert "Error parsing XML content. Returning dtype=None." in caplog.text
 
 def test_text_loader_convert() -> None:
     """Test TextLoader.convert handles simple strings"""
@@ -198,6 +443,19 @@ def test_html_loader_convert() -> None:
     # Should contain markdown headings and paragraph text
     assert 'Hi' in hr.text
     assert 'Para' in hr.text
+
+def test_html_loader_convert_with_no_content(
+    caplog: pytest.LogCaptureFixture
+    ) -> None:
+    """Test that HTMLLoader.convert warns and returns empty string with no content"""
+    caplog.set_level(logging.WARNING)
+    RAGTBLogger.setup_logging(LoggingConfig(console_level="DEBUG", log_file=None, force=False))
+
+    loader = HTMLLoader('https://test.com/index.html', 'out')
+    loader.convert()
+
+    assert loader.text == ''
+    assert 'Warning: no content detected when calling HTMLLoader.convert().' in caplog.text
 
 def test_html_loader_navigablestring_markdown() -> None:
     """Test HTMLLoader implements NavigableString properly"""
@@ -238,6 +496,27 @@ def test_html_loader_navigablestring_markdown() -> None:
     for i in range(1, 6):
         assert f"- Item {i}" in output
 
+def test_base_loader_convert_errors(caplog: pytest.LogCaptureFixture) -> None:
+    """Test BaseLoader.convert throws error and subclasses inherit this"""
+    caplog.set_level(logging.DEBUG)
+    RAGTBLogger.setup_logging(LoggingConfig(console_level="DEBUG", log_file=None, force=False))
+    test_loader = BaseLoader(source = '', output_dir = '')
+
+    # Checking for error from BaseLoader
+    err_msg = 'Subclasses must implement convert()'
+    with pytest.raises(NotImplementedError, match=err_msg):
+        test_loader.convert()
+    assert err_msg in caplog.text
+
+    # Checking subclasses inherit this
+    class MockLoader(BaseLoader):
+        """Dummy loader class"""
+    test_loader = MockLoader(source = '', output_dir = '')
+
+    with pytest.raises(NotImplementedError, match=err_msg):
+        test_loader.convert()
+    assert err_msg in caplog.text
+
 def test_pdf_loader_convert(monkeypatch: Any) -> None:
     """Test PDFLoader.convert works"""
     # Mock pdfplumber.open to return DummyPDF with pages
@@ -249,13 +528,40 @@ def test_pdf_loader_convert(monkeypatch: Any) -> None:
     assert 'Page1' in pr.text
     assert 'Page2' in pr.text
 
-def test_unknown_loader_convert(capsys: Any) -> None:
-    """Smokescreen test for UnknownLoader.convert method"""
+def test_pdf_loader_convert_with_no_content(
+    caplog: pytest.LogCaptureFixture
+    ) -> None:
+    """Test that PDFLoader.convert warns and returns empty string with no content"""
+    caplog.set_level(logging.WARNING)
+    RAGTBLogger.setup_logging(LoggingConfig(console_level="DEBUG", log_file=None, force=False))
+
+    loader = PDFLoader('https://test.com/test.pdf', 'out')
+    loader.convert()
+
+    assert loader.text == ''
+    assert 'Warning: no content detected when calling PDFLoader.convert().' in caplog.text
+
+def test_text_loader_convert_with_no_content(
+    caplog: pytest.LogCaptureFixture
+    ) -> None:
+    """Test that TextLoader.convert warns and returns empty string with no content"""
+    caplog.set_level(logging.WARNING)
+    RAGTBLogger.setup_logging(LoggingConfig(console_level="DEBUG", log_file=None, force=False))
+
+    loader = TextLoader('https://test.com/test.txt', 'out')
+    loader.convert()
+
+    assert loader.text == ''
+    assert 'Warning: no content detected when calling TextLoader.convert().' in caplog.text
+
+def test_unknown_loader_convert(caplog: pytest.LogCaptureFixture) -> None:
+    """Test for UnknownLoader.convert method"""
+    caplog.set_level(logging.DEBUG)
+    RAGTBLogger.setup_logging(LoggingConfig(console_level="DEBUG", log_file=None, force=False))
     ur = UnknownLoader('http://example.com/file.xyz', 'out')
     ur.raw_content = b''
     ur.convert()
-    captured = capsys.readouterr()
-    assert 'Unknown format' in captured.out
+    assert 'Unknown format' in caplog.text
     assert ur.text == ''
 
 def test_save(tmp_path: Any) -> None:
@@ -267,7 +573,25 @@ def test_save(tmp_path: Any) -> None:
     assert out_file.exists()
     assert out_file.read_text(encoding='utf-8') == 'TestSave'
 
-# Integration tests
+def test_html_loader_save_with_no_content(
+    caplog: pytest.LogCaptureFixture, tmp_path: Path
+    ) -> None:
+    """Test that HTMLLoader.save warns and saves empty file"""
+    caplog.set_level(logging.WARNING)
+    RAGTBLogger.setup_logging(LoggingConfig(console_level="DEBUG", log_file=None, force=False))
+
+    loader = HTMLLoader('https://test.com/index.html', tmp_path)
+    loader.save()
+    out = tmp_path / 'index.txt'
+
+    assert out.exists()
+    assert out.read_text(encoding='utf-8') == ''
+    assert 'Warning: no content detected when calling HTMLLoader.save().' in caplog.text
+
+# =====================
+# INTEGRATION TESTS
+# =====================
+
 def test_full_process_text(monkeypatch: Any, tmp_path: Any) -> None:
     """Full test of loading process with TextLoader"""
     # Mock requests.get for a TXT URL
@@ -422,3 +746,25 @@ def test_full_process_local_pdf(monkeypatch: Any, tmp_path: Any) -> None:
         content = f.read()
         assert 'Page 1 content' in content
         assert 'Page 2 content' in content
+
+def test_full_process_with_no_text(
+    caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+    """Test that loader process with missing text throws and logs error"""
+    caplog.set_level(logging.DEBUG)
+    RAGTBLogger.setup_logging(LoggingConfig(console_level="DEBUG", log_file=None, force=False))
+
+    # Mocks for the process wrapper method
+    def dummy_fetch(self) -> None: # pylint: disable=redefined-builtin, unused-argument
+        """Mock fetch method"""
+        return None
+    def dummy_convert(self) -> None: # pylint: disable=redefined-builtin, unused-argument
+        """Mock convert method"""
+        return None
+    monkeypatch.setattr("RAGToolBox.loader.BaseLoader.fetch", dummy_fetch)
+    monkeypatch.setattr("RAGToolBox.loader.BaseLoader.convert", dummy_convert)
+
+    test_loader = BaseLoader(source = '', output_dir = '')
+    test_loader.process()
+
+    assert 'Warning: No text extracted from' in caplog.text

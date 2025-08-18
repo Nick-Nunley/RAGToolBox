@@ -8,6 +8,8 @@ Additionally, this script provides a CLI entry point for execution as a standalo
 
 import argparse
 import os
+import logging
+import sys
 import subprocess
 import re
 from typing import Optional, List, Tuple, Dict
@@ -16,6 +18,9 @@ from pathlib import Path
 from RAGToolBox.embeddings import Embeddings
 from RAGToolBox.chunk import Chunker, HierarchicalChunker, SectionAwareChunker, SlidingWindowChunker
 from RAGToolBox.vector_store import VectorStoreFactory
+from RAGToolBox.logging import RAGTBLogger
+
+logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class IndexerConfig:
@@ -45,6 +50,7 @@ class Indexer:
         Embeddings.validate_embedding_model(embedding_model)
         self.embedding_model = embedding_model
         if config is None:
+            logger.info("No Indexer config supplied. Using default 'IndexerConfig'")
             config = IndexerConfig()
         self.output_dir = config.output_dir
 
@@ -148,16 +154,17 @@ class Indexer:
             parallel_config = ParallelConfig()
         chunk_texts = [entry['chunk'] for entry in chunked_results]
         if not chunk_texts:
-            print("No chunks to embed.")
+            logger.warning("No chunks to embed.")
             return
         if parallel_config.parallel_embed:
             # heuristic: 2 batches per worker
             batch_size = max(1, len(chunk_texts) // (parallel_config.num_workers * 2))
             batches = [chunk_texts[i:i+batch_size] for i in range(0, len(chunk_texts), batch_size)]
             from concurrent.futures import ProcessPoolExecutor, as_completed
-            print(
-                f"Embedding {len(chunk_texts)} chunks "
-                f"using {parallel_config.num_workers} workers..."
+            logger.debug(
+                "Embedding %d chunks "
+                "using %d workers...",
+                len(chunk_texts), parallel_config.num_workers
                 )
             with ProcessPoolExecutor(max_workers=parallel_config.num_workers) as executor:
                 futures = []
@@ -169,21 +176,33 @@ class Indexer:
                         batch_entries
                         ))
                 for future in as_completed(futures):
-                    future.result()  # raise exceptions if any
+                    future.result()
         else:
             embeddings = self.embed(chunk_texts)
             self._insert_embeddings_to_db(chunked_results, embeddings)
-        print("Indexing complete.")
+        logger.info("Indexing complete.")
 
     def _optional_loading_and_kb_init(self, cli_args: argparse.Namespace) -> Path:
         """Helper method for handling optional loading and initializing kb path in main"""
         if getattr(cli_args, 'command', None) == 'load':
-            subprocess.run([
-                'python', 'RAGToolBox/loader.py', *cli_args.urls,
-                '--output-dir', cli_args.output_dir,
-                *(["--email", cli_args.email] if cli_args.email else []),
-                *(["--use-readability"] if cli_args.use_readability else [])
-                ], check=True)
+            cmd = [
+                sys.executable, "-m", "RAGToolBox.loader",
+                *cli_args.urls,
+                "--output-dir", cli_args.output_dir,
+                ]
+            if getattr(cli_args, "email", None):
+                cmd += ["--email", cli_args.email]
+            if getattr(cli_args, "use_readability", False):
+                cmd += ["--use-readability"]
+            # Pass through logging flags to child process
+            if hasattr(cli_args, "log_level") and cli_args.log_level:
+                cmd += ["--log-level", cli_args.log_level]
+            if hasattr(cli_args, "log_file") and cli_args.log_file:
+                cmd += ["--log-file", cli_args.log_file]
+                if hasattr(cli_args, "log_file_level") and cli_args.log_file_level:
+                    cmd += ["--log-file-level", cli_args.log_file_level]
+
+            subprocess.run(cmd, check=True)
             # After loading, continue to chunking and indexing
             return Path(cli_args.output_dir)
         return Path(getattr(cli_args, 'kb_dir', 'assets/kb'))
@@ -191,7 +210,7 @@ class Indexer:
     def _concurrent_chunker(self, docs: List[Tuple[str, str]]) -> List[Dict[str, str]]:
         """Helper method for implementing concurrent chunking"""
         from concurrent.futures import ProcessPoolExecutor, as_completed
-        print(f"Chunking {len(docs)} documents using {os.cpu_count()} processes...")
+        logger.debug("Chunking %d documents using %d processes...", len(docs), os.cpu_count())
         chunked_results = []
         with ProcessPoolExecutor() as executor:
             future_to_name = {executor.submit(self.chunk, doc): doc[0] for doc in docs}
@@ -203,7 +222,7 @@ class Indexer:
                         'metadata': metadata,
                         'chunk': chunk
                     })
-                print(f"Chunked {name}: {len(chunks)} chunks")
+                logger.debug("Chunked %s: %d chunks", name, len(chunks))
         return chunked_results
 
     def main(self, cli_args: argparse.Namespace) -> None:
@@ -213,7 +232,7 @@ class Indexer:
         # 1. Gather all .txt files in the knowledge base directory
         txt_files = list(kb_dir.glob('*.txt'))
         if not txt_files:
-            print(f"No .txt files found in {kb_dir}. Skipping chunking and indexing.")
+            logger.warning("No .txt files found in %s. Skipping chunking and indexing.", kb_dir)
             return
 
         # 2. Read all documents
@@ -272,6 +291,7 @@ if __name__ == "__main__":
         '--collection-name', type=str, default='rag_collection',
         help='Collection name for Chroma (default: rag_collection)'
     )
+    RAGTBLogger.add_logging_args(parser=parser)
     # Load subcommand
     subparsers = parser.add_subparsers(dest='command', help='Available commands')
     load_parser = subparsers.add_parser('load', help='Load documents from URLs')
@@ -283,6 +303,8 @@ if __name__ == "__main__":
         action='store_true', help='Use readability fallback'
         )
     args = parser.parse_args()
+
+    RAGTBLogger.configure_logging_from_args(args=args)
 
     # Prepare vector store configuration
     vector_store_config = {}
