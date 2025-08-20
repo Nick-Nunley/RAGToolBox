@@ -16,6 +16,13 @@ from RAGToolBox.retriever import Retriever
 from RAGToolBox.chunk import HierarchicalChunker, SectionAwareChunker, SlidingWindowChunker
 from RAGToolBox.logging import RAGTBLogger, LoggingConfig
 
+# Check for optional dependencies
+try:
+    import chromadb
+    CHROMADB_AVAILABLE = True
+except ImportError:
+    CHROMADB_AVAILABLE = False
+
 # Mocks and helpers
 
 class DummyClient:
@@ -238,6 +245,9 @@ def test_indexer_with_sqlite_backend() -> None:
         assert indexer.vector_store.db_path == output_dir / 'embeddings.db'
 
 
+@pytest.mark.skipif(
+    not CHROMADB_AVAILABLE, reason="openai package not installed"
+    )
 def test_indexer_with_chroma_backend() -> None:
     """Test Indexer initialization with Chroma backend"""
     with tempfile.TemporaryDirectory() as temp_dir:
@@ -316,14 +326,11 @@ def test_chroma_get_embeddings_without_initialization(
 # CHROMA TESTS (CONDITIONAL)
 # =====================
 
+@pytest.mark.skipif(
+    not CHROMADB_AVAILABLE, reason="openai package not installed"
+    )
 def test_chroma_vector_store_init() -> None:
     """Test ChromaVectorStore initialization"""
-    # Skip if ChromaDB not available
-    try:
-        import chromadb
-    except ImportError:
-        pytest.skip("ChromaDB not installed")
-
     vector_store = ChromaVectorStore(
         collection_name='test_collection',
         persist_directory=Path('test_chroma_data')
@@ -334,14 +341,11 @@ def test_chroma_vector_store_init() -> None:
     assert vector_store.chroma_client_url is None
 
 
+@pytest.mark.skipif(
+    not CHROMADB_AVAILABLE, reason="openai package not installed"
+    )
 def test_chroma_vector_store_init_remote() -> None:
     """Test ChromaVectorStore initialization with remote URL"""
-    # Skip if ChromaDB not available
-    try:
-        import chromadb
-    except ImportError:
-        pytest.skip("ChromaDB not installed")
-
     vector_store = ChromaVectorStore(
         collection_name='remote_collection',
         chroma_client_url='http://localhost:8000'
@@ -352,14 +356,11 @@ def test_chroma_vector_store_init_remote() -> None:
     assert vector_store.persist_directory is None
 
 
+@pytest.mark.skipif(
+    not CHROMADB_AVAILABLE, reason="openai package not installed"
+    )
 def test_chroma_vector_store_initialize_local() -> None:
     """Test ChromaVectorStore initialization with local persistence"""
-    # Skip if ChromaDB not available
-    try:
-        import chromadb
-    except ImportError:
-        pytest.skip("ChromaDB not installed")
-
     with tempfile.TemporaryDirectory() as temp_dir:
         persist_dir = Path(temp_dir) / 'chroma_data'
 
@@ -378,14 +379,11 @@ def test_chroma_vector_store_initialize_local() -> None:
         assert vector_store.collection is not None
 
 
+@pytest.mark.skipif(
+    not CHROMADB_AVAILABLE, reason="openai package not installed"
+    )
 def test_chroma_vector_store_insert_and_get_all_embeddings() -> None:
     """Test ChromaVectorStore insert_embeddings and get_all_embeddings methods"""
-    # Skip if ChromaDB not available
-    try:
-        import chromadb
-    except ImportError:
-        pytest.skip("ChromaDB not installed")
-
     with tempfile.TemporaryDirectory() as temp_dir:
         persist_dir = Path(temp_dir) / 'chroma_data'
 
@@ -595,14 +593,11 @@ def test_indexer_integration_with_sqlite() -> None:
         assert embeddings_data[1]['chunk'] == 'Clinical trials for drug discovery'
 
 
+@pytest.mark.skipif(
+    not CHROMADB_AVAILABLE, reason="openai package not installed"
+    )
 def test_indexer_integration_with_chroma() -> None:
     """Integration test using actual Indexer with Chroma backend"""
-    # Skip if ChromaDB not available
-    try:
-        import chromadb
-    except ImportError:
-        pytest.skip("ChromaDB not installed")
-
     with tempfile.TemporaryDirectory() as temp_dir:
         output_dir = Path(temp_dir) / 'embeddings'
         persist_dir = Path(temp_dir) / 'chroma_data'
@@ -694,6 +689,9 @@ def test_retriever_with_sqlite_backend() -> None:
         assert retriever.vector_store.db_path == db_path
 
 
+@pytest.mark.skipif(
+    not CHROMADB_AVAILABLE, reason="openai package not installed"
+    )
 def test_retriever_with_chroma_backend() -> None:
     """Test Retriever initialization with Chroma backend"""
     with tempfile.TemporaryDirectory() as temp_dir:
@@ -770,14 +768,11 @@ def test_retriever_integration_with_sqlite() -> None:
             assert isinstance(results[0], dict)
 
 
+@pytest.mark.skipif(
+    not CHROMADB_AVAILABLE, reason="openai package not installed"
+    )
 def test_retriever_integration_with_chroma() -> None:
     """Integration test using actual Retriever with Chroma backend"""
-    # Skip if ChromaDB not available
-    try:
-        import chromadb
-    except ImportError:
-        pytest.skip("ChromaDB not installed")
-
     with tempfile.TemporaryDirectory() as temp_dir:
         persist_dir = Path(temp_dir) / 'chroma_data'
 

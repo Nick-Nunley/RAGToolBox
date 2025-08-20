@@ -7,9 +7,9 @@
 
 * **Loading** content (local files, web pages, PubMed/PMC articles)
 * **Chunking** text (paragraphs, sentences, sliding windows, section‑aware, hierarchical)
-* **Storing** embeddings (SQLite and ChromaVectorStore backends)
+* **Storing** embeddings (SQLite and optional ChromaVectorStore backends)
 * **Indexing** content with parallel embedding and metadata parsing
-* **Retrieval** *via* OpenAI or FastEmbed embeddings and similarity search
+* **Retrieval** *via* FastEmbed or (optional) openai embeddings and similarity search
 * **Augmentation** using customizable prompts and LLMs (local or Hugging Face)
 
 ---
@@ -49,12 +49,9 @@ pip install .
 
 * Python 3.10+
 * Core dependencies (see also `pyproject.toml`):
-    * langchain>=0.3.26
-    * openai>=1.95.1
-    * faiss-cpu>=1.11.0
-    * tiktoken>=0.9.0
-    * streamlit>=1.46.1
+    * numpy>=1.26.0
     * requests>=2.32.4
+    * pyyaml>=6.0.2
     * pdfplumber>=0.11.7
     * html2text>=2025.4.15
     * pytest>=8.4.1
@@ -64,8 +61,9 @@ pip install .
     * nltk>=3.9.1
     * fastembed>=0.7.1
     * huggingface_hub>=0.33.5
+* Optional dependencies (for extended capabilities):
+    * openai>=1.95.1
     * chromadb>=1.0.15
-* Optional dependencies (for local model inference):
     * torch>=2.7.1
     * transformers>=4.30.0
 

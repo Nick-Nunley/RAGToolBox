@@ -33,11 +33,22 @@ class Embeddings():
     @staticmethod
     def _embed_openai(texts: List[str], max_retries: int) -> List[List[float]]:
         """Helper method to embed text using openai API model"""
-        import openai  # local import so package users without openai aren’t penalized
+        try:
+            import openai  # local import so package users without openai aren’t penalized
+        except ImportError as e:
+            err = (
+                "openai package is required. "
+                "Install with: pip install openai"
+                )
+            logger.error(err, exc_info=True)
+            raise ImportError(err ) from e
         client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
         for attempt in range(max_retries):
             try:
-                resp = client.embeddings.create(input=texts, model=Embeddings.OPENAI_EMBED_MODEL)
+                resp = client.embeddings.create(
+                    input=texts,
+                    model=Embeddings.OPENAI_EMBED_MODEL
+                    )
                 return [d.embedding for d in resp.data]
             except openai.RateLimitError:
                 time.sleep(2 ** attempt)
