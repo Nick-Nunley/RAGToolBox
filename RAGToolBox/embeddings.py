@@ -38,7 +38,10 @@ class Embeddings():
             client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
             for attempt in range(max_retries):
                 try:
-                    resp = client.embeddings.create(input=texts, model=Embeddings.OPENAI_EMBED_MODEL)
+                    resp = client.embeddings.create(
+                        input=texts,
+                        model=Embeddings.OPENAI_EMBED_MODEL
+                        )
                     return [d.embedding for d in resp.data]
                 except openai.RateLimitError:
                     time.sleep(2 ** attempt)
