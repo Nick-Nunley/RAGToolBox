@@ -9,13 +9,18 @@ Additionally, this script provides a CLI entry point for execution as a standalo
 
 import argparse
 import logging
-from typing import List, Optional
+from typing import List, Optional, TypedDict, Any
 from pathlib import Path
 import numpy as np
 from RAGToolBox.embeddings import Embeddings
 from RAGToolBox.vector_store import VectorStoreFactory
 
 logger = logging.getLogger(__name__)
+
+class RetrievedChunk(TypedDict):
+    """Chunk dict"""
+    data: str
+    metadata: dict[str, Any]
 
 class Retriever:
     """Retriever class for retrieving relevant chunks from the knowledge base"""
