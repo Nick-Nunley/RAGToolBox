@@ -49,6 +49,9 @@ jobs:
       - name: Install dependencies
         run: poetry install --no-interaction --no-ansi
 
+      - name: Check dependency drift with deptry
+        run: poetry run deptry . --verbose
+
       # 6) Download punkt
       - name: Download punkt
         run: bash RAGToolBox/Download_punkt.sh

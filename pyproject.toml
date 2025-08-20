@@ -31,7 +31,6 @@ numpy = [
   { version = "^2.3", markers = "python_version >= '3.11'" }
 ]
 
-
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.4.1"
 pytest-cov = "^6.2.1"
