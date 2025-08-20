@@ -17,11 +17,11 @@ __all__ = ['Chunker', 'ParagraphChunker', 'SentenceChunker',
 logger = logging.getLogger(__name__)
 
 class Chunker(Protocol):
-    """Base Chunker class with word general wordboundary methods"""
+    """Base Chunker class with word general wordboundary methods."""
 
     def chunk(self, text: str) -> List[str]:
         """
-        Main chunk entry point
+        Main chunk entry point.
 
         Args:
             text: String input to be chunked
@@ -49,11 +49,11 @@ class Chunker(Protocol):
         return idx
 
 class ParagraphChunker(Chunker):
-    """Chunker subclass to chunk by paragraph breaks"""
+    """Chunker subclass to chunk by paragraph breaks."""
 
     def chunk(self, text: str) -> List[str]:
         """
-        Main chunking method for ParagraphChunker subclass
+        Main chunking method for ParagraphChunker subclass.
 
         Args:
             text: String input to be chunked
@@ -65,11 +65,11 @@ class ParagraphChunker(Chunker):
         return [p.strip() for p in text.split('\n\n') if p.strip()]
 
 class SentenceChunker(Chunker):
-    """Chunker subclass to chunk by sentence breaks"""
+    """Chunker subclass to chunk by sentence breaks."""
 
     def chunk(self, text: str) -> List[str]:
         """
-        Main chunking method for SentenceChunker sublcass
+        Main chunking method for SentenceChunker sublcass.
 
         Args:
             text: String input to be chunked
@@ -332,7 +332,7 @@ class HierarchicalChunker(Chunker):
 
     def chunk(self, text: str) -> List[str]:
         """
-        Split text into chunks hierarchically with `chunkers` attribute
+        Split text into chunks hierarchically with `chunkers` attribute.
 
         Args:
             text: String input to be chunked
