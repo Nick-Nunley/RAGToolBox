@@ -1,5 +1,6 @@
 """Tests associated with Index module"""
 # pylint: disable=protected-access
+# pylint: disable=unused-import
 
 import argparse
 import logging
