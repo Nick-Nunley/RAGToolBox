@@ -47,7 +47,7 @@ jobs:
 
       # 5) Install dependencies
       - name: Install dependencies
-        run: poetry install --no-interaction --no-ansi
+        run: poetry install --no-interaction --no-ansi -E "chromadb openai" # -E for extra optional dependencies
 
       - name: Check dependency drift with deptry
         run: poetry run deptry . --verbose

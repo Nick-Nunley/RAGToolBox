@@ -13,13 +13,6 @@ import pytest
 from RAGToolBox.embeddings import Embeddings
 from RAGToolBox.logging import RAGTBLogger, LoggingConfig
 
-# Check for optional dependencies
-try:
-    import openai
-    OPENAI_AVAILABLE = True
-except ImportError:
-    OPENAI_AVAILABLE = False
-
 # -----------------------
 # Validation tests
 # -----------------------
@@ -129,9 +122,6 @@ def test_embed_openai_retries_then_success(monkeypatch) -> None:
     # Backoff uses 2 ** attempt for attempt=0,1 on failures
     assert sleep_calls == [1, 2]  # 2**0, 2**1
 
-@pytest.mark.skipif(
-    not OPENAI_AVAILABLE, reason="openai package not installed"
-    )
 def test_embed_openai_exhausts_retries(
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
     ) -> None:

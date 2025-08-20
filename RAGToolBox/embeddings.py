@@ -35,19 +35,6 @@ class Embeddings():
         """Helper method to embed text using openai API model"""
         try:
             import openai  # local import so package users without openai aren’t penalized
-            client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-            for attempt in range(max_retries):
-                try:
-                    resp = client.embeddings.create(
-                        input=texts,
-                        model=Embeddings.OPENAI_EMBED_MODEL
-                        )
-                    return [d.embedding for d in resp.data]
-                except openai.RateLimitError:
-                    time.sleep(2 ** attempt)
-            err = "Failed to embed after multiple retries due to rate limits."
-            logger.error(err)
-            raise RuntimeError(err)
         except ImportError as e:
             err = (
                 "openai package is required. "
@@ -55,10 +42,19 @@ class Embeddings():
                 )
             logger.error(err, exc_info=True)
             raise ImportError(err ) from e
-        except Exception as e:
-            err = f"Error embedding: {texts}"
-            logger.error(err, exc_info=True)
-            raise RuntimeError(err) from e
+        client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        for attempt in range(max_retries):
+            try:
+                resp = client.embeddings.create(
+                    input=texts,
+                    model=Embeddings.OPENAI_EMBED_MODEL
+                    )
+                return [d.embedding for d in resp.data]
+            except openai.RateLimitError:
+                time.sleep(2 ** attempt)
+        err = "Failed to embed after multiple retries due to rate limits."
+        logger.error(err)
+        raise RuntimeError(err)
 
     @staticmethod
     def _embed_fastembed(texts: List[str]) -> List[List[float]]:
