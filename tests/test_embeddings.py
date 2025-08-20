@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 import sys
+import builtins
 import logging
 import types
 from typing import List
@@ -125,7 +126,7 @@ def test_embed_openai_retries_then_success(monkeypatch) -> None:
 def test_embed_openai_exhausts_retries(
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
     ) -> None:
-    """Test embed_openai erros with exhuasted retries"""
+    """Test embed_openai errors with exhuasted retries"""
     caplog.set_level(logging.DEBUG)
     RAGTBLogger.setup_logging(LoggingConfig(console_level="DEBUG", log_file=None, force=False))
     _client, _ = _install_fake_openai(monkeypatch, fail_first_n=10)  # more than retries
@@ -134,6 +135,29 @@ def test_embed_openai_exhausts_retries(
     with pytest.raises(RuntimeError) as exc:
         Embeddings._embed_openai(["only"], max_retries=3)
     err_msg = "Failed to embed after multiple retries"
+    assert err_msg in str(exc.value)
+    assert err_msg in caplog.text
+
+def test_embed_openai_exhausts_retries(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+    """Test embed_openai errors when openai not installed"""
+    caplog.set_level(logging.DEBUG)
+    RAGTBLogger.setup_logging(LoggingConfig(console_level="DEBUG", log_file=None, force=False))
+
+    monkeypatch.delitem(sys.modules, "openai", raising=False)
+    real_import = builtins.__import__
+
+    def fake_import(name, *args, **kwargs):
+        if name == "openai":
+            raise ImportError("No module named 'openai'")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", fake_import)
+
+    with pytest.raises(ImportError) as exc:
+        Embeddings._embed_openai(["hello"], max_retries=1)
+    err_msg = "openai package is required."
     assert err_msg in str(exc.value)
     assert err_msg in caplog.text
 
