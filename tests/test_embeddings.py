@@ -138,7 +138,7 @@ def test_embed_openai_exhausts_retries(
     assert err_msg in str(exc.value)
     assert err_msg in caplog.text
 
-def test_embed_openai_exhausts_retries(
+def test_embed_openai_without_openai_installed(
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
     ) -> None:
     """Test embed_openai errors when openai not installed"""
@@ -148,7 +148,8 @@ def test_embed_openai_exhausts_retries(
     monkeypatch.delitem(sys.modules, "openai", raising=False)
     real_import = builtins.__import__
 
-    def fake_import(name, *args, **kwargs):
+    def fake_import(name: str, *args, **kwargs) -> real_import:
+        """Function to mock import error"""
         if name == "openai":
             raise ImportError("No module named 'openai'")
         return real_import(name, *args, **kwargs)
