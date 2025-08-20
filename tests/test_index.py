@@ -9,6 +9,13 @@ from pathlib import Path
 import pytest
 from RAGToolBox.index import Indexer, IndexerConfig, ParallelConfig
 
+# Check for optional dependencies
+try:
+    import openai
+    OPENAI_AVAILABLE = True
+except ImportError:
+    OPENAI_AVAILABLE = False
+
 class DummyChunker:
     """Mock chunker class"""
     def chunk(self, text: str):
@@ -93,6 +100,9 @@ def test_indexer_chunk() -> None:
 
 
 # Test the embed method
+@pytest.mark.skipif(
+    not OPENAI_AVAILABLE, reason="openai package not installed"
+    )
 def test_indexer_embed() -> None:
     """Test that embedding works with Indexer"""
     indexer = Indexer(DummyChunker(), embedding_model='openai')

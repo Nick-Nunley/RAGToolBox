@@ -12,7 +12,6 @@ packages = [
 
 [tool.poetry.dependencies]
 python = "^3.10"
-openai = "^1.95.1"
 requests = "^2.32.4"
 pdfplumber = "^0.11.7"
 html2text = "^2025.4.15"
@@ -22,7 +21,6 @@ readability-lxml = "^0.8.4.1"
 nltk = "^3.9.1"
 fastembed = "^0.7.1"
 huggingface_hub = "^0.33.5"
-chromadb = "^1.0.15"
 torch = { version = "^2.7.1", optional = true }
 transformers = { version = "^4.30.0", optional = true }
 pyyaml = "^6.0.2"
@@ -30,6 +28,12 @@ numpy = [
   { version = ">=1.26,<2.3", markers = "python_version < '3.11'" },
   { version = "^2.3", markers = "python_version >= '3.11'" }
 ]
+chromadb = {version = ">=1.0.15", optional = true}
+openai = {version = ">=1.95.1", optional = true}
+
+[tool.poetry.extras]
+chromadb = ["chromadb"]
+openai = ["openai"]
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.4.1"
