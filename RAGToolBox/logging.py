@@ -1,8 +1,16 @@
 """
-RAGToolBox Logging module.
+RAGToolBox logging utilities.
 
-Provides a function for setting up loggers through module-specific
-CLI-entry points.
+Provides a small, consistent logging setup for both library usage and CLI
+entry points. You can either:
+
+- Call :func:`RAGTBLogger.setup_logging` directly with a :class:`LoggingConfig`
+- Or wire standard flags into any argparse parser via
+  :func:`RAGTBLogger.add_logging_args` and then call
+  :func:`RAGTBLogger.configure_logging_from_args`.
+
+Console and file logging can be configured independently; file logs use a
+rotating handler.
 """
 
 from __future__ import annotations
@@ -21,7 +29,25 @@ _DATEFMT = "%Y-%m-%d %H:%M:%S"
 @dataclass(frozen=True)
 class LoggingConfig:
     """
-    Holds all the optional config settings for Logging.
+    Configuration for RAGToolBox logging.
+
+    Attributes:
+        console_level:
+            Minimum level for messages printed to stderr. One of:
+            ``"CRITICAL"``, ``"ERROR"``, ``"WARNING"``, ``"INFO"``, ``"DEBUG"``, ``"NOTSET"``.
+        log_file:
+            Optional path to a log file. If provided, a rotating file handler is
+            configured in addition to console logging.
+        file_level:
+            Minimum level for messages written to the log file (if enabled).
+        rotate_max_bytes:
+            Maximum size (in bytes) for the rotating log file before rollover.
+        rotate_backups:
+            Number of backup log files to keep.
+        force:
+            If ``True``, existing handlers on the root logger are removed before
+            configuring new handlers. This prevents duplicate logs when
+            re-initializing from multiple entry points or tests.
     """
     console_level: Literal["CRITICAL","ERROR","WARNING","INFO","DEBUG","NOTSET"] = "INFO"
     log_file: Optional[str] = None
@@ -31,17 +57,41 @@ class LoggingConfig:
     force: bool = True
 
 class RAGTBLogger:
-    """Class wrapping up logging components specific to RAGToolBox"""
+    """
+    Helper for consistent logger configuration across RAGToolBox.
+
+    Typical usage:
+        >>> from RAGToolBox.logging import RAGTBLogger, LoggingConfig
+        >>> RAGTBLogger.setup_logging(LoggingConfig(console_level="INFO"))
+
+    Or integrate with a CLI:
+        >>> parser = argparse.ArgumentParser()
+        >>> RAGTBLogger.add_logging_args(parser)
+        >>> args = parser.parse_args()
+        >>> RAGTBLogger.configure_logging_from_args(args)
+    """
 
     @staticmethod
     def setup_logging(config: Optional[LoggingConfig] = None) -> None:
         """
-        Configure logging with separate console and optional file handlers.
+        Configure root logging with a console handler and optional rotating file handler.
 
-        - Console: shown by default at 'console_level' (no file created).
-        - File: only added if 'log_file' is provided; captures 'file_level' (usually DEBUG).
+        Behavior:
+            - Console handler (stderr) uses ``config.console_level``.
+            - If ``config.log_file`` is set, a rotating file handler is added with
+              ``config.file_level`` and rollover controlled by
+              ``config.rotate_max_bytes`` / ``config.rotate_backups``.
+            - When ``config.force`` is ``True``, any existing handlers on the root
+              logger are removed to avoid duplicate output.
 
-        'force=True' clears existing handlers so repeated calls don't duplicate output.
+        Args:
+            config:
+                The logging configuration. If omitted, a default
+                :class:`LoggingConfig` is used.
+
+        Side Effects:
+            Modifies the root logger's handlers and level (root is set to DEBUG to
+            allow handlers to filter).
         """
         if config is None:
             config = LoggingConfig()
@@ -69,7 +119,23 @@ class RAGTBLogger:
 
     @staticmethod
     def add_logging_args(parser: argparse.ArgumentParser) -> None:
-        """Attach standard logging options to any CLI parser."""
+        """
+        Add standard logging flags to an argparse parser.
+
+        Flags added:
+            --log-level
+                Console logging level. Defaults to the value of the
+                ``RAGTB_LOG_LEVEL`` environment variable if set, otherwise
+                ``WARNING``.
+            --log-file
+                Path to a rotating log file. Defaults to ``RAGTB_LOG_FILE`` env var (if set).
+            --log-file-level
+                File logging level. Defaults to the value of
+                ``RAGTB_LOG_FILE_LEVEL`` env var if set, otherwise ``DEBUG``.
+
+        Args:
+            parser: The parser to mutate.
+        """
         parser.add_argument(
             '--log-level',
             default = os.getenv('RAGTB_LOG_LEVEL', 'WARNING'),
@@ -92,7 +158,16 @@ class RAGTBLogger:
 
     @staticmethod
     def configure_logging_from_args(args: argparse.Namespace) -> None:
-        """Apply logging config based on parsed args."""
+        """
+        Construct a :class:`LoggingConfig` from parsed argparse args and configure logging.
+
+        Expects the parser to have been augmented by
+        :func:`RAGTBLogger.add_logging_args`.
+
+        Args:
+            args: Parsed argparse namespace containing ``log_level``,
+                  ``log_file``, and ``log_file_level``.
+        """
         RAGTBLogger.setup_logging(LoggingConfig(
             console_level=args.log_level,
             log_file=args.log_file,
