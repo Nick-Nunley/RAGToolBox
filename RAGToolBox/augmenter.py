@@ -15,7 +15,8 @@ from importlib.resources import files
 from typing import Optional, Sequence
 from pathlib import Path
 import yaml
-from RAGToolBox.retriever import Retriever, RetrievedChunk
+from RAGToolBox.types import RetrievedChunk
+from RAGToolBox.retriever import Retriever
 
 __all__ = ["Augmenter"]
 logger = logging.getLogger(__name__)

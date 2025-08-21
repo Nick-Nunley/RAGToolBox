@@ -10,28 +10,15 @@ A small CLI is also provided when running the module as ``python -m RAGToolBox.r
 
 import argparse
 import logging
-from typing import List, Optional, TypedDict, Any
+from typing import List, Optional
 from pathlib import Path
 import numpy as np
+from RAGToolBox.types import RetrievedChunk
 from RAGToolBox.embeddings import Embeddings
 from RAGToolBox.vector_store import VectorStoreFactory
 
-__all__ = ['RetrievedChunk', 'Retriever']
+__all__ = ['Retriever']
 logger = logging.getLogger(__name__)
-
-class RetrievedChunk(TypedDict):
-    """
-    A retrieved result item.
-
-    Keys:
-        data:
-            The text content of the chunk
-        metadata:
-            Arbitrary metadata captured during indexing (e.g., source filename,
-            section headers, custom tags)
-    """
-    data: str
-    metadata: dict[str, Any]
 
 class Retriever:
     """

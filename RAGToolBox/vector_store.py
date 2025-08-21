@@ -12,8 +12,9 @@ import json
 import hashlib
 import sqlite3
 from abc import ABC, abstractmethod
-from typing import List, Dict, Any, Optional
+from typing import List, Optional
 from pathlib import Path
+from RAGToolBox.types import ChunkEntry, StoredEmbedding
 
 __all__ = ['VectorStoreBackend', 'SQLiteVectorStore', 'ChromaVectorStore', 'VectorStoreFactory']
 logger = logging.getLogger(__name__)
@@ -37,7 +38,7 @@ class VectorStoreBackend(ABC):
 
     @abstractmethod
     def insert_embeddings(
-        self, chunked_results: List[Dict[str, Any]], embeddings: List[List[float]]
+        self, chunked_results: List[ChunkEntry], embeddings: List[List[float]]
         ) -> None:
         """
         Insert chunks and their embeddings into the vector store.
@@ -56,7 +57,7 @@ class VectorStoreBackend(ABC):
         """
 
     @abstractmethod
-    def get_all_embeddings(self) -> List[Dict[str, Any]]:
+    def get_all_embeddings(self) -> List[StoredEmbedding]:
         """Get all embeddings from the vector store for similarity calculation.
 
         Returns:
@@ -129,7 +130,7 @@ class SQLiteVectorStore(VectorStoreBackend):
         conn.close()
 
     def insert_embeddings(
-        self, chunked_results: List[Dict[str, Any]], embeddings: List[List[float]]
+        self, chunked_results: List[ChunkEntry], embeddings: List[List[float]]
         ) -> None:
         """
         Insert chunk, embedding, and metadata rows into SQLite database.
@@ -163,7 +164,7 @@ class SQLiteVectorStore(VectorStoreBackend):
         conn.close()
         logger.info("Embddings inserted successfully")
 
-    def get_all_embeddings(self) -> List[Dict[str, Any]]:
+    def get_all_embeddings(self) -> List[StoredEmbedding]:
         """
         Fetch all rows from the ``embeddings`` table.
 
@@ -295,7 +296,7 @@ class ChromaVectorStore(VectorStoreBackend):
             self.collection = self.client.create_collection(name=self.collection_name)
 
     def insert_embeddings(
-        self, chunked_results: List[Dict[str, Any]], embeddings: List[List[float]]
+        self, chunked_results: List[ChunkEntry], embeddings: List[List[float]]
         ) -> None:
         """
         Insert chunks, embeddings, and metadata into Chroma collection.
@@ -341,7 +342,7 @@ class ChromaVectorStore(VectorStoreBackend):
         )
         logger.info("Embddings inserted successfully")
 
-    def get_all_embeddings(self) -> List[Dict[str, Any]]:
+    def get_all_embeddings(self) -> List[StoredEmbedding]:
         """
         Get all chunks/embeddings/metadatas from the Chroma collection.
 
