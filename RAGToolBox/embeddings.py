@@ -108,7 +108,7 @@ class Embeddings():
             model_name: Name of the embedding backend. See
                 :py:meth:`Embeddings.supported_models` for the current list
             texts: List of strings to embed
-            max_retries: Max retry attempts on rate limits (OpenAI backend only)
+            max_retries: Max retry attempts on rate limits (remote backend only)
 
         Returns:
             List of embeddings aligned to ``texts``
@@ -134,7 +134,7 @@ class Embeddings():
         Args:
             model_name: Name of the embedding backend
             text: Single string to embed
-            max_retries: Max retry attempts on rate limits (OpenAI backend only)
+            max_retries: Max retry attempts on rate limits (remote backend only)
 
         Returns:
             A single embedding vector for ``text``
