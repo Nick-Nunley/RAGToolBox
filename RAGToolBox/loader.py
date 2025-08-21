@@ -1,8 +1,17 @@
 """
 RAGToolBox Loader module.
 
-Provides the Loader classes for ingesting/loading documents from various sources
-(e.g. PubMed, PMC, HTML, PDF) documents as raw TXT files for string indexing.
+Ingests documents from multiple sources (PubMed/PMC via NCBI, generic HTML,
+PDF, and plain text) and converts them to normalized Markdown/TXT ready for
+chunking and indexing.
+
+Environment:
+    NCBI_EMAIL: Email address used by NCBI E-utilities (recommended).
+    (Optional) HTTP(S) proxy environment variables respected by requests.
+
+CLI:
+    This module can be invoked as a script to fetch one or more sources and
+    save converted `.txt` files to an output directory.
 
 Additionally, this script provides a CLI entry point for execution as a standalone python module.
 """
@@ -23,11 +32,23 @@ import pdfplumber
 from Bio import Entrez
 from RAGToolBox.logging import RAGTBLogger
 
+__all__ = ['BaseLoader', 'NCBILoader', 'HTMLLoader', 'PDFLoader', 'TextLoader', 'UnknownLoader']
 logger = logging.getLogger(__name__)
 
 class BaseLoader:
     """
-    Abstract base class for fetching, converting, and saving content from a URL or local file.
+    Base class for fetching, converting, and saving content from a URL or local file.
+
+    Subclasses implement :meth:`convert` to turn raw bytes into normalized text.
+    Typical usage is :meth:`process`, which runs ``fetch -> convert -> save``.
+
+    Attributes:
+        source: Original input (URL or local file path)
+        output_dir: Directory where converted text will be written
+        raw_content: Raw bytes (or str for some XML cases) obtained by :meth:`fetch`
+        text: Converted plain text/markdown produced by :meth:`convert`
+        is_local_file: Whether ``source`` points to an on-disk file
+        timeout: Per-request timeout (seconds) for remote fetches
     """
     source: str  # Can be URL or file path
     output_dir: str
@@ -36,6 +57,14 @@ class BaseLoader:
     is_local_file: bool
 
     def __init__(self, source: str, output_dir: str, *, timeout: float = 30.0) -> None:
+        """
+        Initialize loader with a source and output directory.
+
+        Args:
+            source: URL or local file path
+            output_dir: Directory to write the converted `.txt` file
+            timeout: Timeout (seconds) for HTTP requests made during :meth:`fetch`
+        """
         self.source = source
         self.output_dir = output_dir
         self.raw_content = None
@@ -44,7 +73,16 @@ class BaseLoader:
         self.timeout = timeout
 
     def fetch(self) -> None:
-        """Fetch raw bytes from the URL or local file."""
+        """
+        Fetch raw content from `source`.
+
+        If ``source`` is a local file, it is read as bytes. Otherwise, an HTTP
+        GET is performed with ``timeout``.
+
+        Raises:
+            TimeoutError: If the HTTP request times out
+            RuntimeError: For non-timeout HTTP errors (4xx/5xx) or connection failures
+        """
         if self.is_local_file:
             with open(self.source, 'rb') as f:
                 self.raw_content = f.read()
@@ -122,7 +160,19 @@ class BaseLoader:
     @staticmethod
     def detect_loader(source: str, content: bytes) -> type:
         """
-        Factory method to select the appropriate Loader subclass.
+        Choose an appropriate loader subclass for ``source`` and ``content``.
+
+        Detection uses file extension, URL host (e.g., NCBI), and lightweight
+        content sniffing (e.g., HTML/PDF signatures).
+
+        Args:
+            source: URL or local file path
+            content: Initial bytes read/fetched from ``source`` (for sniffing)
+
+        Returns:
+            A :class:`BaseLoader` subclass such as :class:`HTMLLoader`,
+            :class:`PDFLoader`, :class:`TextLoader`, :class:`NCBILoader`,
+            or :class:`UnknownLoader`
         """
         # Check if source is a local file
         if os.path.exists(source) and os.path.isfile(source):
@@ -130,13 +180,29 @@ class BaseLoader:
         return BaseLoader._handle_remote_file_detection(source=source, content=content)
 
     def convert(self) -> None:
-        """Convert raw content bytes to plain text. Implemented by subclasses."""
+        """
+        Convert :attr:`raw_content` into normalized text.
+
+        Subclasses must implement this method and set :attr:`text`.
+
+        Raises:
+            NotImplementedError: Always in the base class
+        """
         err = "Subclasses must implement convert()"
         logger.error(err)
         raise NotImplementedError(err)
 
     def save(self) -> None:
-        """Save the converted text to a .txt file in the output directory."""
+        """
+        Write :attr:`text` to ``output_dir`` as ``<name>.txt``.
+
+        The filename is derived from:
+            * local files: the original basename without extension, or
+            * URLs: the path basename, falling back to ``document.txt``.
+
+        Side Effects:
+            Creates ``output_dir`` if missing and writes the file to disk
+        """
         os.makedirs(self.output_dir, exist_ok=True)
 
         if self.is_local_file:
@@ -154,7 +220,13 @@ class BaseLoader:
         logger.info("Saved plain text to %s", out_path)
 
     def process(self) -> None:
-        """Full pipeline: fetch, convert, and save."""
+        """
+        End-to-end pipeline: :meth:`fetch`, :meth:`convert`, and then :meth:`save`.
+
+        Notes:
+            If :attr:`text` is empty after conversion, the file is not saved and a
+            warning is logged
+        """
         logger.info("Processing: %s", self.source)
         self.fetch()
         self.convert()
@@ -164,12 +236,32 @@ class BaseLoader:
             logger.warning("Warning: No text extracted from %s", self.source)
 
 class NCBILoader(BaseLoader):
-    """Loader sublcass for handling fetching and loading documentation from NCBI APIs"""
+    """
+    Loader for PubMed and PMC articles via NCBI E-utilities.
+
+    Fetches XML (and, for PMC, optionally follows to the PDF), extracts metadata,
+    abstract, body (if available), and references, and renders Markdown-like text.
+
+    Attributes:
+        pmc_id: Identifier parsed from the URL path (PMC or PubMed)
+        article_data: Parsed metadata and sections (title, authors, journal, etc.)
+        _used_pdf: Whether a PMC PDF was downloaded and used as the primary source
+    """
+
     pmc_id: str
     _used_pdf: bool
     article_data: Optional[Dict[str, Any]]
 
     def __init__(self, source: str, output_dir: str) -> None:
+        """
+        Initializes an instance of NCBILoader.
+
+        Attributes:
+            pmc_id: Identifier parsed from the URL path (PMC or PubMed)
+            article_data: Parsed metadata and sections (title, authors, journal, etc.)
+            _used_pdf: Whether a PMC PDF was downloaded and used as the primary source
+            _supported_sources: List of strings to validate ``source_type`` args against
+        """
         super().__init__(source, output_dir)
         self.pmc_id = os.path.basename(urlparse(self.source).path.rstrip('/'))
         self._used_pdf = False
@@ -191,7 +283,16 @@ class NCBILoader(BaseLoader):
         return 'pmc'
 
     def fetch(self) -> None:
-        """Fetch content via Entrez efetch for PMC/PubMed IDs, prefer PDF if available."""
+        """
+        Fetch XML with Entrez and prefer PMC PDF when available.
+
+
+        Uses :func:`Bio.Entrez.efetch` to retrieve article XML. For PMC records,
+        attempts to locate and download a PDF and extract text via :class:`PDFLoader`.
+
+        Raises:
+            RuntimeError: If the Entrez fetch fails
+        """
         pmc_id = os.path.basename(urlparse(self.source).path.rstrip('/'))
         db = self._get_ncbi_db_from_url()
         tried: List[str] = []
@@ -277,11 +378,11 @@ class NCBILoader(BaseLoader):
         response.raise_for_status()
         return response.content
 
-    def safe_text(self, elem: Optional[ET.Element]) -> str:
+    def _safe_text(self, elem: Optional[ET.Element]) -> str:
         """Text processing method to strip out strings from XML elements"""
         return elem.text.strip() if elem is not None and elem.text else ""
 
-    def extract_all_text(self, elem: Optional[ET.Element]) -> str:
+    def _extract_all_text(self, elem: Optional[ET.Element]) -> str:
         """Method to extract text out of XML content"""
         if elem is None:
             return ""
@@ -289,7 +390,7 @@ class NCBILoader(BaseLoader):
         if elem.text:
             texts.append(elem.text.strip())
         for child in elem:
-            texts.append(self.extract_all_text(child))
+            texts.append(self._extract_all_text(child))
         if elem.tail:
             texts.append(elem.tail.strip())
         return " ".join([t for t in texts if t])
@@ -336,7 +437,16 @@ class NCBILoader(BaseLoader):
         self.text = "".join(text_parts)
 
     def convert(self) -> None:
-        """Method to transform data formats to Markdown for loading"""
+        """
+        Convert fetched XML (or PDF result) into Markdown-like text.
+
+        If a PMC PDF was already processed during :meth:`fetch`, this is a no-op.
+        Otherwise, parses the XML into :attr:`article_data` and formats sections.
+
+        Side Effects:
+            Sets :attr:`text` to the final normalized content (or empty string if
+            parsing fails)
+        """
         if getattr(self, '_used_pdf', False) and self.text:
             return
         self.article_data = self._parse_xml_content()
@@ -380,11 +490,13 @@ class NCBILoader(BaseLoader):
                 surname = author_elem.find(".//surname")
                 given_names = author_elem.find(".//given-names")
                 if surname is not None and given_names is not None:
-                    authors_list.append(f"{self.safe_text(given_names)} {self.safe_text(surname)}")
+                    authors_list.append(
+                        f"{self._safe_text(given_names)} {self._safe_text(surname)}"
+                        )
             return authors_list
         for author_elem in root.findall(".//AuthorList/Author"):
-            last = self.safe_text(author_elem.find("LastName"))
-            fore = self.safe_text(author_elem.find("ForeName"))
+            last = self._safe_text(author_elem.find("LastName"))
+            fore = self._safe_text(author_elem.find("ForeName"))
             if last or fore:
                 authors_list.append(f"{fore} {last}".strip())
         return authors_list
@@ -394,12 +506,12 @@ class NCBILoader(BaseLoader):
         keywords_list: List[str] = []
         if source_type == 'PMC':
             for keyword_elem in root.findall(".//kwd"):
-                kw = self.safe_text(keyword_elem)
+                kw = self._safe_text(keyword_elem)
                 if kw:
                     keywords_list.append(kw)
             return keywords_list
         for mesh_elem in root.findall(".//MeshHeading/DescriptorName"):
-            kw = self.safe_text(mesh_elem)
+            kw = self._safe_text(mesh_elem)
             if kw:
                 keywords_list.append(kw)
         return keywords_list
@@ -409,12 +521,12 @@ class NCBILoader(BaseLoader):
         references_list: List[str] = []
         if source_type == 'PMC':
             for ref_elem in root.findall(".//ref"):
-                ref_text = self.extract_all_text(ref_elem)
+                ref_text = self._extract_all_text(ref_elem)
                 if ref_text:
                     references_list.append(ref_text)
             return references_list
         for ref_elem in root.findall(".//ReferenceList/Reference/Citation"):
-            ref_text = self.extract_all_text(ref_elem)
+            ref_text = self._extract_all_text(ref_elem)
             if ref_text:
                 references_list.append(ref_text)
         return references_list
@@ -423,23 +535,23 @@ class NCBILoader(BaseLoader):
         article_data: Dict[str, Any] = {}
         # Title
         title_elem = root.find(".//article-title")
-        article_data['title'] = self.safe_text(title_elem)
+        article_data['title'] = self._safe_text(title_elem)
         # Authors
         article_data['authors'] = self._obtain_authors(root=root, source_type='PMC')
         # Journal
         journal_elem = root.find(".//journal-title")
-        article_data['journal'] = self.safe_text(journal_elem)
+        article_data['journal'] = self._safe_text(journal_elem)
         # DOI
         doi_elem = root.find(".//article-id[@pub-id-type='doi']")
-        article_data['doi'] = self.safe_text(doi_elem)
+        article_data['doi'] = self._safe_text(doi_elem)
         # Keywords
         article_data['keywords'] = self._obtain_keywords(root=root, source_type='PMC')
         # Abstract
         abstract_elem = root.find(".//abstract")
-        article_data['abstract'] = self.extract_all_text(abstract_elem)
+        article_data['abstract'] = self._extract_all_text(abstract_elem)
         # Body
         body_elem = root.find(".//body")
-        article_data['body'] = self.extract_all_text(body_elem)
+        article_data['body'] = self._extract_all_text(body_elem)
         if not article_data['body']:
             logger.warning(
                 "Warning: Full text/body not availble for %s. "
@@ -456,20 +568,20 @@ class NCBILoader(BaseLoader):
         article_data: Dict[str, Any] = {}
         # Title
         title_elem = root.find(".//ArticleTitle")
-        article_data['title'] = self.safe_text(title_elem)
+        article_data['title'] = self._safe_text(title_elem)
         # Authors
         article_data['authors'] = self._obtain_authors(root=root, source_type='PubMed')
         # Journal
         journal_elem = root.find(".//Journal/Title")
-        article_data['journal'] = self.safe_text(journal_elem)
+        article_data['journal'] = self._safe_text(journal_elem)
         # DOI
         doi_elem = root.find(".//ELocationID[@EIdType='doi']")
-        article_data['doi'] = self.safe_text(doi_elem)
+        article_data['doi'] = self._safe_text(doi_elem)
         # Keywords (PubMed Mesh terms)
         article_data['keywords'] = self._obtain_keywords(root=root, source_type='PubMed')
         # Abstract
         abstract_elem = root.find(".//Abstract")
-        article_data['abstract'] = self.extract_all_text(abstract_elem)
+        article_data['abstract'] = self._extract_all_text(abstract_elem)
         # Body (not available in PubMed, leave blank)
         article_data['body'] = ""
         # References
@@ -486,7 +598,12 @@ class NCBILoader(BaseLoader):
         return text
 
     def save(self) -> None:
-        """Save the converted text using PMC ID as filename."""
+        """
+        Save converted text using the PMC/PubMed identifier as the filename.
+
+        Side Effects:
+            Writes ``<pmc_id>.txt`` into ``output_dir``
+        """
         os.makedirs(self.output_dir, exist_ok=True)
         filename = f"{self.pmc_id}.txt"
         out_path = os.path.join(self.output_dir, filename)
@@ -495,9 +612,24 @@ class NCBILoader(BaseLoader):
         logger.info("Saved plain text to %s", out_path)
 
 class HTMLLoader(BaseLoader):
-    """Loader subclass from fetching and loading documentation directly from HTML"""
+    """
+    Loader for generic HTML pages.
+
+    Extracts a reasonable article title and body (using Readability as needed),
+    converts headings, paragraphs, lists, and blockquotes to Markdown-like text,
+    and saves the result using a slugified title when available.
+    """
 
     def __init__(self, source, output_dir, use_readability: bool = False):
+        """
+        Initializes an instance of HTMLLoader.
+
+        Args:
+            source: Page URL
+            output_dir: Directory to write output
+            use_readability: If ``True``, favor Readability extraction when the
+                initial conversion is too short/low-signal
+        """
         super().__init__(source, output_dir)
         self._use_readability = use_readability
 
@@ -595,7 +727,17 @@ class HTMLLoader(BaseLoader):
         return "".join(self._html_to_markdown(child) for child in element.children)
 
     def convert(self) -> None:
-        """Extract main article text and structure it as markdown with metadata."""
+        """
+        Extract main content and render Markdown-like text.
+
+        Behavior:
+            * Use Readability to detect article title and body
+            * Convert common HTML structures to Markdown headings/lists/quotes
+            * Fallback to a simpler text-cleaning pipeline if content is too short
+
+        Side Effects:
+            Sets :attr:`text` to the normalized content (or empty string on failure)
+        """
         if self.raw_content is None:
             logger.warning(
                 "Warning: no content detected when calling HTMLLoader.convert(). "
@@ -666,6 +808,14 @@ class HTMLLoader(BaseLoader):
         return ""
 
     def save(self) -> None:
+        """
+        Write the converted text using a slugified title when available.
+
+        If no suitable title is found, falls back to the URL path basename.
+
+        Side Effects:
+            Writes ``<title-slug>.txt`` (or fallback) into ``output_dir``
+        """
         os.makedirs(self.output_dir, exist_ok=True)
         # Try extracting a real title:
         if self.raw_content is None:
@@ -691,10 +841,20 @@ class HTMLLoader(BaseLoader):
         logger.info("Saved plain text to %s", out_path)
 
 class PDFLoader(BaseLoader):
-    """Loader sublcass for fetching and loading documentation directly from PDF formats"""
+    """
+    Loader for PDFs.
+
+    Uses :mod:`pdfplumber` to extract page text and concatenates the result
+    into a plain text/Markdown-friendly form
+    """
 
     def convert(self) -> None:
-        """Extract text from each page of a PDF."""
+        """
+        Extract text from each page of a PDF.
+
+        Raises:
+            RuntimeError: If PDF parsing fails (propagated from `pdfplumber`)
+        """
         text_chunks = []
         if self.raw_content is None:
             logger.warning(
@@ -710,10 +870,14 @@ class PDFLoader(BaseLoader):
         self.text = "\n".join(text_chunks)
 
 class TextLoader(BaseLoader):
-    """Loader sublcass for loading documentation directly from text formats"""
+    """
+    Loader for plain text or Markdown-like files.
+
+    Decodes raw bytes as UTF-8 (ignoring errors) to produce the final text.
+    """
 
     def convert(self) -> None:
-        """Decode raw bytes as UTF-8 text."""
+        """DDecode :attr:`raw_content` as UTF-8 text (errors ignored)."""
         if self.raw_content is None:
             logger.warning(
                 "Warning: no content detected when calling TextLoader.convert(). "
@@ -724,10 +888,15 @@ class TextLoader(BaseLoader):
             self.text = self.raw_content.decode('utf-8', errors = 'ignore')  # type: ignore
 
 class UnknownLoader(BaseLoader):
-    """Placeholder sublcass for warning about unsupported documentation formats"""
+    """
+    Fallback loader for unrecognized formats.
+
+    Leaves :attr:`text` empty and logs a warning. Useful to keep batch jobs
+    moving when a source type is unsupported.
+    """
 
     def convert(self) -> None:
-        """Handle unknown formats gracefully by skipping."""
+        """Skip conversion for unknown formats (no-op, logs a warning)."""
         logger.warning("Unknown format for URL: %s. Cannot convert to text format.", self.source)
         self.text = ''
 
