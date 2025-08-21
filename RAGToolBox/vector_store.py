@@ -1,8 +1,10 @@
 """
 RAGToolBox Vector_store module.
 
-Provides the VectorStore classes for handling and interfacing with various
-vector storage formats (e.g. SQLite and Chromadb).
+Provides an abstract :class:`VectorStoreBackend` and concrete implementations
+for SQLite and ChromaDB, plus a small factory for instantiation from a string
+identifier. These backends store text chunks, their vector embeddings, and
+associated metadata for semantic retrieval.
 """
 
 import logging
@@ -13,39 +15,105 @@ from abc import ABC, abstractmethod
 from typing import List, Dict, Any, Optional
 from pathlib import Path
 
+__all__ = ['VectorStoreBackend', 'SQLiteVectorStore', 'ChromaVectorStore', 'VectorStoreFactory']
 logger = logging.getLogger(__name__)
 
 class VectorStoreBackend(ABC):
-    """Abstract base class for vector storage backends."""
+    """
+    Abstract base class for vector storage backends.
+
+    Backends must support initialization, inserting chunk/embedding pairs,
+    enumerating all stored embeddings, and deleting the entire collection.
+    """
 
     @abstractmethod
     def initialize(self) -> None:
-        """Initialize the vector store (create tables, collections, etc.)."""
+        """
+        Initialize the vector store.
+
+        Should create any required tables/collections and establish connections
+        so the instance is ready to accept inserts/queries.
+        """
 
     @abstractmethod
     def insert_embeddings(
         self, chunked_results: List[Dict[str, Any]], embeddings: List[List[float]]
         ) -> None:
-        """Insert chunks and their embeddings into the vector store."""
+        """
+        Insert chunks and their embeddings into the vector store.
+
+        Args:
+            chunked_results:
+                List of items with at least keys ``'chunk'`` (str) and
+                ``'metadata'`` (dict). Additional keys (e.g. ``'name'``) may be
+                used by specific backends
+            embeddings:
+                A list of vectors aligned 1:1 with ``chunked_results``
+
+        Raises:
+            RuntimeError: If the write operation fails
+            ValueError: If input lengths are mismatched
+        """
 
     @abstractmethod
     def get_all_embeddings(self) -> List[Dict[str, Any]]:
-        """Get all embeddings from the vector store for similarity calculation."""
+        """Get all embeddings from the vector store for similarity calculation.
+
+        Returns:
+            A list of dictionaries, each containing:
+                - ``'chunk'``: str
+                - ``'embedding'``: list[float]
+                - ``'metadata'``: dict (may be empty)
+
+        Notes:
+            Implementations may load all rows into memory; callers should
+            consider total collection size when using this method.
+        """
 
     @abstractmethod
     def delete_collection(self) -> None:
-        """Delete the entire collection/database."""
+        """
+        Delete or drop the entire collection/database.
+
+        Intended for test cleanup or rebuild operations.
+        """
 
 
 class SQLiteVectorStore(VectorStoreBackend):
-    """SQLite-based vector store backend (current implementation)."""
+    """
+    SQLite-backed vector store.
+
+    Stores each chunk, its embedding, and metadata in a single table
+    named ``embeddings`` inside a file-backed SQLite database.
+
+    Attributes:
+        db_path: Filesystem path to the SQLite database file
+    """
 
     def __init__(self, db_path: Path):
+        """
+        Create a SQLite backend bound to ``db_path``.
+
+        Ensures the parent directory exists but does not create tables until
+        :meth:`initialize` is called.
+
+        Args:
+            db_path: Path to the SQLite database file
+        """
         self.db_path = db_path
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
 
     def initialize(self) -> None:
-        """Create the SQLite database and table if they don't exist."""
+        """
+        Create the SQLite database and ``embeddings`` table if it does not exist.
+
+        Table schema:
+            - ``id`` (TEXT PRIMARY KEY): deterministic hash of the chunk text
+            - ``chunk`` (TEXT)
+            - ``embedding`` (TEXT, JSON-encoded list[float])
+            - ``metadata`` (TEXT, JSON-encoded dict)
+            - ``source`` (TEXT, optional)
+        """
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         cursor.execute('''
@@ -63,7 +131,20 @@ class SQLiteVectorStore(VectorStoreBackend):
     def insert_embeddings(
         self, chunked_results: List[Dict[str, Any]], embeddings: List[List[float]]
         ) -> None:
-        """Insert chunk, embedding, and metadata into SQLite database."""
+        """
+        Insert chunk, embedding, and metadata rows into SQLite database.
+
+        Args:
+            chunked_results:
+                Items with keys ``'chunk'`` (str) and ``'metadata'`` (dict),
+                a deterministic SHA-256 of the chunk is used as ``id``
+            embeddings:
+                Embeddings aligned 1:1 with ``chunked_results``
+
+        Raises:
+            RuntimeError: If the database write fails
+            ValueError: If input lengths are mismatched
+        """
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
 
@@ -83,7 +164,14 @@ class SQLiteVectorStore(VectorStoreBackend):
         logger.info("Embddings inserted successfully")
 
     def get_all_embeddings(self) -> List[Dict[str, Any]]:
-        """Get all embeddings from the SQLite database."""
+        """
+        Fetch all rows from the ``embeddings`` table.
+
+        Returns:
+            A list of dictionaries with keys ``'chunk'``, ``'embedding'``,
+            and ``'metadata'`` (if the database or table does not exist,
+            an empty list is returned)
+        """
         if not Path(self.db_path).exists():
             logger.warning(
                 'Warning: no such database found at %s. Returning emtpy list...',
@@ -115,13 +203,30 @@ class SQLiteVectorStore(VectorStoreBackend):
         ]
 
     def delete_collection(self) -> None:
-        """Delete the SQLite database file."""
+        """Delete the SQLite database file if it exists."""
         if self.db_path.exists():
             self.db_path.unlink()
 
 
 class ChromaVectorStore(VectorStoreBackend):
-    """Chroma-based vector store backend for remote/local vector database."""
+    """
+    ChromaDB-backed vector store (local or remote).
+
+    Supports local ephemeral, local persistent, and remote HTTP clients,
+    and manages a single collection identified by ``collection_name``.
+
+    Attributes:
+        collection_name:
+            Name of the Chroma collection
+        persist_directory:
+            Directory for local on-disk persistence (optional)
+        chroma_client_url:
+            Remote server URL for Chroma HTTP client (optional)
+        client:
+            The underlying Chroma client instance (set by :meth:`initialize`)
+        collection:
+            The active Chroma collection instance (set by :meth:`initialize`)
+    """
 
     def __init__(
         self, collection_name: str = "rag_collection", persist_directory: Optional[Path] = None,
@@ -142,7 +247,19 @@ class ChromaVectorStore(VectorStoreBackend):
         self.collection = None
 
     def initialize(self) -> None:
-        """Initialize Chroma client and create/get collection."""
+        """
+        Initialize Chroma client and create/get collection.
+
+        Behavior:
+            - If ``chroma_client_url`` is provided, uses ``chromadb.HttpClient``.
+            - Else if ``persist_directory`` is provided, uses
+              ``chromadb.PersistentClient`` with that path.
+            - Else uses an in-memory ``chromadb.Client``.
+
+        Raises:
+            ImportError: If ``chromadb`` is not installed
+            RuntimeError: If client or collection initialization fails
+        """
         try:
             import chromadb
         except ImportError as e:
@@ -180,7 +297,21 @@ class ChromaVectorStore(VectorStoreBackend):
     def insert_embeddings(
         self, chunked_results: List[Dict[str, Any]], embeddings: List[List[float]]
         ) -> None:
-        """Insert chunks and embeddings into Chroma collection."""
+        """
+        Insert chunks, embeddings, and metadata into Chroma collection.
+
+        Args:
+            chunked_results:
+                Items with keys ``'chunk'`` (str) and ``'metadata'`` (dict).
+                A deterministic SHA-256 of the chunk text is used as the ``id``.
+                The ``'name'`` key (if present) is copied to metadata as ``'source'``.
+            embeddings:
+                Embeddings aligned 1:1 with ``chunked_results``
+
+        Raises:
+            RuntimeError: If the collection is not initialized or the add fails
+            ValueError: If input lengths are mismatched
+        """
         if not self.collection:
             err = "Chroma collection not initialized. Call initialize() first."
             logger.error(err)
@@ -211,7 +342,16 @@ class ChromaVectorStore(VectorStoreBackend):
         logger.info("Embddings inserted successfully")
 
     def get_all_embeddings(self) -> List[Dict[str, Any]]:
-        """Get all embeddings from the Chroma collection."""
+        """
+        Get all chunks/embeddings/metadatas from the Chroma collection.
+
+        Returns:
+            A list of dictionaries of the form:
+                ``{'chunk': str, 'embedding': list[float], 'metadata': dict}``
+
+        Raises:
+            RuntimeError: If the collection is not initialized
+        """
         if not self.collection:
             err = "Chroma collection not initialized. Call initialize() first."
             logger.error(err)
@@ -231,7 +371,7 @@ class ChromaVectorStore(VectorStoreBackend):
         ]
 
     def delete_collection(self) -> None:
-        """Delete the Chroma collection."""
+        """Drop the Chroma collection if it exists."""
         if self.client and self.collection:
             try:
                 self.client.delete_collection(name=self.collection_name)
@@ -241,19 +381,37 @@ class ChromaVectorStore(VectorStoreBackend):
 
 
 class VectorStoreFactory:
-    """Factory class for creating vector store backends."""
+    """
+    Factory for constructing :class:`VectorStoreBackend` instances.
+
+    Usage:
+        >>> store = VectorStoreFactory.create_backend("sqlite", db_path=Path("embeddings.db"))
+        >>> store.initialize()
+    """
 
     @staticmethod
     def create_backend(backend_type: str, **kwargs) -> VectorStoreBackend:
         """
-        Create a vector store backend based on the specified type.
+        Create a vector-store backend by name.
 
         Args:
-            backend_type: Type of backend ('sqlite', 'chroma')
-            **kwargs: Additional arguments for the specific backend
+            backend_type:
+                Backend identifier (case-insensitive). Supported: ``"sqlite"``, ``"chroma"``
+            **kwargs:
+                Backend-specific options:
+                    - ``sqlite``:
+                        * ``db_path``: :class:`pathlib.Path` | str (default:
+                          ``assets/kb/embeddings/embeddings.db``)
+                    - ``chroma``:
+                        * ``collection_name``: str (default: ``"rag_collection"``)
+                        * ``persist_directory``: :class:`pathlib.Path` | str (optional)
+                        * ``chroma_client_url``: str (optional)
 
         Returns:
-            VectorStoreBackend instance
+            A concrete :class:`VectorStoreBackend` instance
+
+        Raises:
+            ValueError: If ``backend_type`` is not supported
         """
         if backend_type.lower() == 'sqlite':
             db_path = kwargs.get('db_path', Path('assets/kb/embeddings/embeddings.db'))
