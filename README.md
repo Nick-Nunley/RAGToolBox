@@ -101,9 +101,9 @@ chunker = HierarchicalChunker([
 ])
 indexer = Indexer(
     chunker=chunker,
-    embedding_model="fastembed",          # or 'openai'
+    embedding_model="fastembed",
     config = IndexerConfig(
-        vector_store_backend="sqlite",       # or 'chroma'
+        vector_store_backend="sqlite",
         vector_store_config={"db_path": Path("assets/kb/embeddings/embeddings.db")}
     )
 )
@@ -182,6 +182,12 @@ bash tests/Run_tests.sh
 ```
 
 Continuous integration is configured via GitHub Actions (see `.github/workflows/ci.yml`).
+
+---
+
+## Note
+
+**RAGToolBox** is in active development. The current release (v0.1.0) is an unstable preview. APIs and behavior may change, and some features may not yet be fully tested.
 
 ---
 

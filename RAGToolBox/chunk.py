@@ -11,19 +11,23 @@ from typing import List, Protocol
 import nltk
 from nltk.tokenize import sent_tokenize
 
+__all__ = ['Chunker', 'ParagraphChunker', 'SentenceChunker',
+          'SlidingWindowChunker', 'SectionAwareChunker', 'HierarchicalChunker']
+
 logger = logging.getLogger(__name__)
 
 class Chunker(Protocol):
-    """Base Chunker class with word general wordboundary methods"""
+    """Base Chunker class with word general wordboundary methods."""
 
     def chunk(self, text: str) -> List[str]:
         """
-        Main chunk entry point
+        Main chunk entry point.
 
         Args:
             text: String input to be chunked
+
         Returns:
-            List of text chunks
+            List of text chunks (as strings)
         """
 
     @staticmethod
@@ -45,18 +49,34 @@ class Chunker(Protocol):
         return idx
 
 class ParagraphChunker(Chunker):
-    """Chunker subclass to chunk by paragraph breaks"""
+    """Chunker subclass to chunk by paragraph breaks."""
 
     def chunk(self, text: str) -> List[str]:
-        """Main chunking method for this subclass"""
+        """
+        Main chunking method for ParagraphChunker subclass.
+
+        Args:
+            text: String input to be chunked
+
+        Retruns:
+            List of text chunks (as strings)
+        """
         # Implementation: split by double newlines
         return [p.strip() for p in text.split('\n\n') if p.strip()]
 
 class SentenceChunker(Chunker):
-    """Chunker subclass to chunk by sentence breaks"""
+    """Chunker subclass to chunk by sentence breaks."""
 
     def chunk(self, text: str) -> List[str]:
-        """Main chunking method for this subclass"""
+        """
+        Main chunking method for SentenceChunker sublcass.
+
+        Args:
+            text: String input to be chunked
+
+        Returns:
+            List of text chunks (as strings)
+        """
         # Check if punkt data is already downloaded, download if not
         try:
             nltk.data.find('tokenizers/punkt')
@@ -79,8 +99,8 @@ class SlidingWindowChunker(Chunker):
         Initialize the sliding window chunker.
 
         Args:
-            window_size: Maximum number of characters per chunk
-            overlap: Number of characters to overlap between consecutive chunks
+            window_size: Maximum number of characters per chunk as integer
+            overlap: Integer number of characters to overlap between consecutive chunks
         """
         if window_size <= 0:
             err = "'window_size' must be positive when using 'SlidingWindowChunker'"
@@ -102,10 +122,11 @@ class SlidingWindowChunker(Chunker):
         """
         Split text into overlapping chunks using sliding window,
         ensuring chunks start and end at word boundaries.
+
         Args:
-            text: Input text to chunk
+            text: String input to be chunked
         Returns:
-            List of overlapping text chunks
+            List of overlapping text chunks (as strings)
         """
         if not text.strip():
             logger.warning(
@@ -142,16 +163,16 @@ class SlidingWindowChunker(Chunker):
 class SectionAwareChunker(Chunker):
     """
     Chunks text while preserving section structure and metadata.
-    Useful for RAG systems that need to maintain document structure.
+    Based on a markdown format.
     """
 
     def __init__(self, max_chunk_size: int = 1000, overlap: int = 200):
         """
-        Initialize the section-aware chunker.
+        Initialize the SectionAwareChunker.
 
         Args:
-            max_chunk_size: Maximum characters per chunk
-            overlap: Character overlap between chunks
+            max_chunk_size: Maximum characters per chunk as integer
+            overlap: Integer number for character overlap between chunks
         """
         if max_chunk_size <= 0:
             err = "'max_chunk_size' must be positive when using 'SectionAwareChunker'"
@@ -174,10 +195,10 @@ class SectionAwareChunker(Chunker):
         Split text into chunks while preserving section structure.
 
         Args:
-            text: Input text with markdown headers
+            text: Markdown string input to be chunked
 
         Returns:
-            List of text chunks with section context
+            List of text chunks with section context (as strings)
         """
         if not text.strip():
             logger.warning(
@@ -295,7 +316,14 @@ class HierarchicalChunker(Chunker):
     The output of one chunker is fed as input to the next.
     Useful for multi-stage chunking (e.g., paragraph -> sliding window).
     """
+
     def __init__(self, chunkers: List[Chunker]):
+        """
+        Initialize the HierarchicalChunker.
+
+        Args:
+            chunkers: A list of chunker objects
+        """
         if not chunkers:
             err = "At least one chunker must be provided when using 'HierarchicalChunker'"
             logger.error(err)
@@ -303,6 +331,15 @@ class HierarchicalChunker(Chunker):
         self.chunkers = chunkers
 
     def chunk(self, text: str) -> List[str]:
+        """
+        Split text into chunks hierarchically with `chunkers` attribute.
+
+        Args:
+            text: String input to be chunked
+
+        Returns:
+            List of text chunks (as strings)
+        """
         chunks = [text]
         for chunker in self.chunkers:
             new_chunks = []

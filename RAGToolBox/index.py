@@ -20,12 +20,21 @@ from RAGToolBox.chunk import Chunker, HierarchicalChunker, SectionAwareChunker, 
 from RAGToolBox.vector_store import VectorStoreFactory
 from RAGToolBox.logging import RAGTBLogger
 
+__all__ = ['IndexerConfig', 'ParallelConfig', 'Indexer']
 logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class IndexerConfig:
     """
     Holds all the optional config settings for Indexer class.
+
+    Attributes:
+        vector_store_backend: Identifier for the vector store backend.
+            Currently supported: ``"sqlite"``, ``"chroma"``
+        vector_store_config: Backend-specific options. For example, for
+            SQLite: ``{"db_path": Path(".../embeddings.db")}``; for Chroma:
+            ``{"collection_name": "...", "persist_directory": "...", "chroma_client_url": "..."}``
+        output_dir: Directory where embedding artifacts (e.g., SQLite DB) are written
     """
     vector_store_backend: str = "sqlite"
     vector_store_config: Optional[dict] = None
@@ -34,18 +43,46 @@ class IndexerConfig:
 @dataclass(frozen=True)
 class ParallelConfig:
     """
-    Holds all config settings for parallel processing
+    Holds all config settings for parallel processing.
+
+    Attributes:
+        parallel_embed: If ``True``, embed in parallel using a process pool
+        num_workers: Number of **processes** to spawn when ``parallel_embed`` is enabled
+            this uses :class:`concurrent.futures.ProcessPoolExecutor`
     """
     parallel_embed: bool = False
     num_workers: int = 3
 
 
 class Indexer:
-    """Indexer class for loading (optional), chunking, and embedding content."""
+    """
+    Indexer class for loading (optional), chunking, and embedding content.
+
+    Attributes:
+        chunker: Chunker used to split documents into chunks
+        embedding_model: Name of the embedding backend; must be one of
+            :py:meth:`RAGToolBox.embeddings.Embeddings.supported_models`
+        output_dir: Directory where embedding artifacts are written
+        vector_store: Initialized vector store backend instance
+
+    Note:
+        The effective vector store configuration is derived from ``config``
+        For the SQLite backend, ``db_path`` defaults to ``output_dir / "embeddings.db"``
+    """
 
     def __init__(
         self, chunker: Chunker, embedding_model: str, config: Optional[IndexerConfig] = None
         ):
+        """
+        Initializes an Indexer object.
+
+        Args:
+            chunker: Chunker to use for indexing
+            embedding_model: Name of the embedding backend. See
+                :py:meth:`Embeddings.supported_models` for the current list
+            config: IndexerConfig to provide indexing paramters such as
+                the vector store backend, backend-specific configuration, and the output directory.
+        """
         self.chunker = chunker
         Embeddings.validate_embedding_model(embedding_model)
         self.embedding_model = embedding_model
@@ -69,11 +106,21 @@ class Indexer:
 
     def pre_chunk(self, text: str) -> dict:
         """
-        Parse a markdown document with metadata at the top (separated by a line with '---').
-        Also extract the references section (after '## References')
-        and store in metadata as 'references', but do not remove it from the main text.
-        If no references, do not add the key.
-        Returns a dictionary: { 'metadata': {...}, 'text': ... }
+        Parse simple front-matter and references from Markdown.
+
+        - Treat a top block before the first line equal to ``---`` as front-matter
+        (lines formatted as ``key: value``).
+        - If a ``## References`` section exists, include its text in metadata
+        under ``"references"`` (the main text is left intact).
+
+        Args:
+            text: Raw Markdown document
+
+        Returns:
+            A dict with:
+                - ``"metadata"``: ``dict[str, str]`` key/value pairs from front-matter and
+                optional ``"references"``
+                - ``"text"``: ``str`` main body (without front-matter)
         """
         # Split at the first '---' line
         parts = re.split(r'^---$', text, maxsplit=1, flags=re.MULTILINE)
@@ -111,7 +158,18 @@ class Indexer:
         return {'metadata': metadata, 'text': main_text}
 
     def chunk(self, doc_args: Tuple[str, str]) -> Tuple[str, dict, List[str]]:
-        """Chunk a document after extracting metadata. Returns (name, metadata, chunks)."""
+        """
+        Chunk a document after extracting metadata.
+
+        Args:
+            doc_args: ``(name, text)`` tuple
+
+        Returns:
+            ``(name, metadata, chunks)`` where:
+                - ``name`` is the document name,
+                - ``metadata`` is ``dict[str, str]``,
+                - ``chunks`` is ``List[str]``
+        """
         name, text = doc_args
         parsed = self.pre_chunk(text)
         metadata = parsed['metadata']
@@ -120,10 +178,21 @@ class Indexer:
 
     def embed(self, chunks: List[str], max_retries: int = 5) -> List[List[float]]:
         """
-        Embed a list of text chunks using the configured
-        embedding model (supports batching for OpenAI).
-        Retries with exponential backoff on rate limit errors.
-        Returns a list of embedding vectors.
+        Embed a list of chunks using the configured embedding backend.
+
+        Retries with exponential backoff on rate-limit errors for remote backends.
+
+        Args:
+            chunks: Chunk texts to embed
+            max_retries: Max retry attempts (only relevant for remote backends)
+
+        Returns:
+            List of embedding vectors (aligned to ``chunks``)
+
+        Raises:
+            ImportError: If the selected backend is not installed
+            RuntimeError: If the backend call fails after retries
+            ValueError: If the configured backend is unsupported
         """
         return Embeddings.embed_texts(self.embedding_model, chunks, max_retries)
 
@@ -144,11 +213,21 @@ class Indexer:
         self, chunked_results: list[dict], parallel_config: Optional[ParallelConfig] = None
         ) -> None:
         """
-        Embed the provided chunks and store results in the SQLite database, optionally in parallel.
+        Embed the provided chunks and store results in the configured vector store.
+
         Args:
-            chunked_results: List of dicts with 'chunk' and 'metadata'.
-            parallel_embed: If True, use multiple processes for embedding.
-            num_workers: Number of worker processes if parallel_embed is True.
+            chunked_results: List of entries with at least:
+                - ``"chunk"``: ``str`` chunk text,
+                - ``"metadata"``: ``dict[str, str]`` (optional keys allowed)
+            parallel_config: Controls process-based parallel embedding
+
+        Raises:
+            RuntimeError: If embedding or persistence fails
+
+        Note:
+            Parallel mode uses a **process** pool; speedups depend on the backend:
+            CPU-bound local embedding can scale, while network-bound remote calls
+            may benefit more from batching than from additional processes.
         """
         if parallel_config is None:
             parallel_config = ParallelConfig()
@@ -226,7 +305,12 @@ class Indexer:
         return chunked_results
 
     def main(self, cli_args: argparse.Namespace) -> None:
-        """Main method for indexing content."""
+        """
+        CLI entrypoint for indexing a knowledge base directory.
+
+        Reads ``*.txt`` files, chunks them, and embeds/persists to the chosen vector store.
+        May spawn a subprocess to run the loader when the ``load`` subcommand is used.
+        """
         kb_dir = self._optional_loading_and_kb_init(cli_args=cli_args)
 
         # 1. Gather all .txt files in the knowledge base directory

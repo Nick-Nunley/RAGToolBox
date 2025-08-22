@@ -12,19 +12,27 @@ import logging
 import os
 import sys
 from importlib.resources import files
-from typing import List, Optional
+from typing import Optional, Sequence
 from pathlib import Path
 import yaml
+from RAGToolBox.types import RetrievedChunk
 from RAGToolBox.retriever import Retriever
 
+__all__ = ["Augmenter"]
 logger = logging.getLogger(__name__)
 
 class Augmenter:
     """
-    Augmenter class for generating responses using retrieved chunks and LLM.
+    Augmenter class for generating responses using retrieved chunks and a LLM.
 
-    This class takes retrieved chunks from the Retriever and combines them
-    with the user query to generate a coherent response using a language model.
+    The augmenter formats a prompt from `query` and `retrieved_chunks`, then
+    calls either a local transformers model or the Hugging Face Inference API.
+
+    Attributes:
+        model_name: Identifier for the model to use.
+        api_key: HF token (if using the Hugging Face Inference API).
+        use_local: If True, use a local transformers pipeline.
+        prompt_type: The selected prompt template content read from `config/prompts.yaml`.
     """
 
     def __init__(
@@ -63,7 +71,13 @@ class Augmenter:
             self._initialize_api_client()
 
     def _initialize_api_client(self):
-        """Initialize the Hugging Face inference client."""
+        """
+        Initialize the Hugging Face inference client.
+
+        Raises:
+            ImportError: If `huggingface_hub` is not installed.
+            RuntimeError: If the client fails to initialize.
+        """
         try:
             from huggingface_hub import InferenceClient
             self.client = InferenceClient(token=self.api_key)
@@ -107,19 +121,19 @@ class Augmenter:
             logger.error(err, exc_info=True)
             raise RuntimeError(err) from e
 
-    def _format_prompt(self, query: str, retrieved_chunks: List[str]) -> str:
+    def _format_prompt(self, query: str, retrieved_chunks: Sequence[RetrievedChunk]) -> str:
         """
         Format the query and retrieved chunks into a prompt for the LLM.
 
         Args:
             query: The user's original query
-            retrieved_chunks: List of retrieved text chunks
+            retrieved_chunks: Sequence of retrieved text chunks
 
         Returns:
             Formatted prompt string
         """
         contx = "\n\n".join(
-            [f"Context {i+1}: {chunk['data']}" for i, chunk in enumerate(retrieved_chunks)]
+            f"Context {i+1}: {chunk['data']}" for i, chunk in enumerate(retrieved_chunks)
             )
         prompt = self.prompt_type.format(context = contx, query = query)
         return prompt
@@ -134,7 +148,8 @@ class Augmenter:
             max_new_tokens: Maximum number of tokens to generate
 
         Returns:
-            Generated response from the LLM
+            A string:
+                The generated response from the LLM
         """
         if self.use_local:
             return self._call_local_model(prompt, temperature, max_new_tokens)
@@ -143,7 +158,22 @@ class Augmenter:
     def _call_local_model(
         self, prompt: str, temperature: float = 0.7, max_new_tokens: int = 200
         ) -> str:
-        """Call the local model using transformers."""
+        """
+        Call the local model using transformers.
+
+        Args:
+            prompt: The formatted prompt to send to the LLM
+            temperature: Controls randomness in generation (0.0 = deterministic, 1.0 = very random)
+            max_new_tokens: Maximum number of tokens to generate
+
+        Returns:
+            A string:
+                The generated response from local LLM
+
+        Raises:
+            ImportError: If `pytorch` is not installed
+            RuntimeError: If a response is not returned from the LLM
+        """
         try:
             import torch
 
@@ -186,7 +216,19 @@ class Augmenter:
     def _call_huggingface_api(
         self, prompt: str, temperature: float = 0.25, max_new_tokens: int = 200
         ) -> str:
-        """Call Hugging Face inference API."""
+        """
+        Call the Hugging Face Inference API.
+
+        Args:
+            prompt: The formatted prompt to send to the LLM
+            temperature: Controls randomness in generation (0.0 = deterministic, 1.0 = very random)
+            max_new_tokens: Maximum number of tokens to generate
+
+        Raises:
+            RuntimeError:
+                If the model is unavailable (404), authentication fails,
+                or another API error occurs.
+        """
         logger.debug("Calling %s through Hugging Face API", self.model_name)
         try:
             # Use the InferenceClient to generate text using chat completions
@@ -229,20 +271,34 @@ class Augmenter:
             raise RuntimeError(err_msg) from e
 
     def generate_response(
-        self, query: str, retrieved_chunks: List[str],
+        self, query: str, retrieved_chunks: Sequence[RetrievedChunk],
         temperature: float = 0.25, max_new_tokens: int = 200
         ) -> str:
         """
         Generate a response using the retrieved chunks as context.
 
         Args:
-            query: The user's original query
-            retrieved_chunks: List of retrieved text chunks from the Retriever
-            temperature: Controls randomness in generation (0.0 = deterministic, 1.0 = very random)
-            max_new_tokens: Maximum number of tokens to generate
+            query: The user's original query as a string
+            retrieved_chunks: Sequence of retrieved text chunks from the Retriever
+            temperature:
+                A float that controls randomness in generation
+                (0.0 = deterministic, 1.0 = very random)
+            max_new_tokens: Maximum number of tokens to generate as an integer
 
         Returns:
-            Generated response from the LLM
+            The generated response string from the LLM
+
+        Raises:
+            RuntimeError: If a response is not returned from the LLM
+            ImportError:
+                If `pytorch` is not installed when `use_local=True`
+
+        Example:
+            >>> retriever = Retriever(embedding_model="fastembed")
+            >>> chunks = retriever.retrieve("What is RAG?", top_k=3)
+            >>> aug = Augmenter(model_name="google/gemma-2-2b-it")
+            >>> aug.generate_response("What is RAG?", chunks)  # doctest: +SKIP
+            "Retrieval-Augmented Generation (RAG) is ..."
         """
         if not retrieved_chunks:
             invalid_resp = "I don't have enough information to answer your question. " + \
@@ -250,29 +306,51 @@ class Augmenter:
             logger.warning("Warning: %s", invalid_resp)
             return invalid_resp
 
-        # Format the prompt
         prompt = self._format_prompt(query, retrieved_chunks)
 
-        # Call the LLM
         resp = self._call_llm(prompt, temperature, max_new_tokens)
         logger.info("Valid response from LLM generated")
         return resp
 
     def generate_response_with_sources(
-        self, query: str, retrieved_chunks: List[str],
+        self, query: str, retrieved_chunks: Sequence[RetrievedChunk],
         temperature: float = 0.25, max_new_tokens: int = 200
         ) -> dict:
         """
         Generate a response with source information.
 
         Args:
-            query: The user's original query
-            retrieved_chunks: List of retrieved text chunks from the Retriever
-            temperature: Controls randomness in generation (0.0 = deterministic, 1.0 = very random)
-            max_new_tokens: Maximum number of tokens to generate
+            query: The user's original query as a string
+            retrieved_chunks: Sequence of retrieved text chunks from the Retriever
+            temperature:
+                A float that controls randomness in generation
+                (0.0 = deterministic, 1.0 = very random)
+            max_new_tokens: Maximum number of tokens to generate as an integer
 
         Returns:
-            Dictionary containing response and source information
+            A dict as follows:
+                {
+                    "response": str,
+                    "sources": list[dict],
+                    "num_sources": int,
+                    "query": str,
+                    "temperature": float,
+                    "max_new_tokens": int,
+                    }
+
+        Raises:
+            RuntimeError: If a response is not returned from the LLM
+            ImportError:
+                If `pytorch` is not installed when `use_local=True`
+
+        Example:
+            >>> retriever = Retriever(embedding_model="fastembed")
+            >>> chunks = retriever.retrieve("What is RAG?", top_k=3)
+            >>> aug = Augmenter(model_name="google/gemma-2-2b-it")
+            >>> aug.generate_response("What is RAG?", chunks)  # doctest: +SKIP
+            {"response": "Retrieval-Augmented Generation (RAG) is ...",
+            "sources": <sources>, "num_sources": 3, "query": "What is RAG?",
+            "temperature": 0.25, "max_new_tokens": 200}
         """
         resp = self.generate_response(query, retrieved_chunks, temperature, max_new_tokens)
 
@@ -382,7 +460,7 @@ Examples:
         '--max-retries',
         default = 5,
         type = int,
-        help = 'Number of times to tries to attempt reaching remote embedding model'
+        help = 'Maximum retry attempts when calling the remote embedding model'
         )
 
     RAGTBLogger.add_logging_args(parser=parser)
