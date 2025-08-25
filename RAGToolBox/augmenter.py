@@ -12,7 +12,7 @@ import logging
 import os
 import sys
 from importlib.resources import files
-from typing import Optional, Sequence
+from typing import Deque, Tuple, Optional, Sequence
 from pathlib import Path
 import yaml
 from RAGToolBox.types import RetrievedChunk
@@ -363,6 +363,124 @@ class Augmenter:
             "max_new_tokens": max_new_tokens
         }
 
+    def _make_history_chunk(self, history: Deque[Tuple[str, str]]) -> RetrievedChunk:
+        """
+        Turn the rolling (user, assistant) history into a synthetic context chunk
+        that fits your existing prompt formatting.
+        """
+        if not history:
+            return {"data": "", "metadata": {"type": "history"}}
+        lines = []
+        for u, a in history:
+            lines.append(f"User: {u}")
+            lines.append(f"Assistant: {a}")
+        text = "Conversation so far:\n" + "\n".join(lines)
+        return {"data": text, "metadata": {"type": "history"}}
+
+    def _process_query_once(
+        self,
+        query: str,
+        retriever: Retriever,
+        *,
+        top_k: int = 5,
+        max_retries: int = 5,
+        temperature: float = 0.25,
+        max_new_tokens: int = 200,
+        history: Deque[Tuple[str, str]] | None = None,
+        include_sources: bool = False,
+        history_turns: int = 5
+        ) -> dict:
+        """
+        Single-turn processing:
+        - build a synthetic 'history' chunk (last N turns),
+        - retrieve KB chunks for the new user query,
+        - call the augmenter,
+        - return a dict with message + (optional) sources.
+        """
+        # Retrieve fresh context for this turn
+        retrieved = retriever.retrieve(query=query, top_k=top_k, max_retries=max_retries)
+
+        # Optionally include rolling chat history as a synthetic "context" chunk
+        extra_chunks: list[RetrievedChunk] = []
+        if history and len(history) > 0:
+            # Only include the most recent N turns
+            recent = deque(list(history)[-history_turns:], maxlen=history_turns)
+            hist_chunk = self._make_history_chunk(recent)
+            if hist_chunk["data"]:
+                extra_chunks.append(hist_chunk)
+
+        # Combine history chunk (if any) + retrieved chunks
+        all_context: list[RetrievedChunk] = [*extra_chunks, *retrieved]
+
+        if include_sources:
+            out = self.generate_response_with_sources(
+                query=query,
+                retrieved_chunks=all_context,
+                temperature=temperature,
+                max_new_tokens=max_new_tokens,
+                )
+            return out
+
+        msg = self.generate_response(
+            query=query,
+            retrieved_chunks=all_context,
+            temperature=temperature,
+            max_new_tokens=max_new_tokens,
+            )
+        return {"response": msg, "sources": retrieved, "num_sources": len(retrieved)}
+
+def initiate_chat(augmenter: Augmenter, retriever: Retriever, args: argparse.Namespace) -> None:
+    """
+    Function to initiate a rolling chat with LLM.
+
+    Args:
+        retriever: A Retriever instance for fetching context chunks.
+        augmenter: An Augmenter instance for generating responses.
+        args: Parsed CLI arguments (argparse.Namespace) with attributes:
+            - top_k (int)
+            - max_retries (int)
+            - temperature (float)
+            - max_tokens (int)
+            - sources (bool)
+            - history_turns (int)
+    """
+    print("Chat mode: type your message. Type 'quit' or 'exit' to leave.")
+    history: deque[tuple[str, str]] = deque(maxlen=50) # keep a longer rolling buffer; we'll slice per-turn
+
+    while True:
+        try:
+            user_msg = input("\nYou: ").strip()
+            if user_msg.lower() in {"quit", "exit"}:
+                break
+            # process one turn
+            result = augmenter._process_query_once(
+                query=user_msg,
+                retriever=retriever,
+                top_k=args.top_k,
+                max_retries=args.max_retries,
+                temperature=args.temperature,
+                max_new_tokens=args.max_tokens,
+                history=history,
+                include_sources=args.sources,
+                history_turns=args.history_turns,
+                )
+            assistant_msg = result["response"]
+            print(f"\nAssistant: {assistant_msg}")
+
+            if args.sources:
+                # Lightly print source count; you can print richer metadata if you like
+                print(f"\n[Sources used: {result.get('num_sources', len(result.get('sources', [])))}]")
+            # Append to history
+            history.append((user_msg, assistant_msg))
+
+        except KeyboardInterrupt:
+            print("\nInterrupted. Exiting chat.")
+            break
+        except Exception as e:  # pylint: disable=broad-exception-caught
+            logger.exception("Chat turn failed")
+            print(f"Error: {str(e)}")
+    sys.exit(0)
+
 if __name__ == "__main__":
 
     from RAGToolBox.logging import RAGTBLogger
@@ -379,12 +497,20 @@ Examples:
         """
     )
 
-    # Required arguments
-    parser.add_argument(
-        "query",
-        type=str,
-        help="The query/question to answer"
-    )
+    group = parser.add_mutually_exclusive_group(required=True)
+
+    group.add_argument(
+        'query',
+        nargs = '?',
+        type = str,
+        help = "The query/question to answer"
+        )
+
+    group.add_argument(
+        '--chat',
+        action = 'store_true',
+        help = 'Start an interactive chat loop (retrieval + augmentation per turn).'
+        )
 
     # Optional arguments with defaults
     parser.add_argument(
@@ -463,6 +589,13 @@ Examples:
         help = 'Maximum retry attempts when calling the remote embedding model'
         )
 
+    parser.add_argument(
+        '--history-turns',
+        type = int,
+        default = 5,
+        help = 'How many past turns to include in the synthetic history context.'
+        )
+
     RAGTBLogger.add_logging_args(parser=parser)
 
     # Parse arguments
@@ -493,6 +626,15 @@ Examples:
             use_local=args.use_local,
             prompt_type=args.prompt_type
         )
+
+        # Interactive rolling chat with LLM
+        if args.chat:
+            from collections import deque
+            initiate_chat(
+                augmenter = augmenter,
+                retriever = retriever,
+                args = args
+                )
 
         # Retrieve context
         logger.info(
