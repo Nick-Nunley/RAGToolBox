@@ -13,6 +13,7 @@ import os
 import sys
 from importlib.resources import files
 from typing import Deque, Tuple, Optional, Sequence
+from collections import deque
 from pathlib import Path
 import yaml
 from RAGToolBox.types import RetrievedChunk
@@ -468,9 +469,7 @@ def initiate_chat(augmenter: Augmenter, retriever: Retriever, args: argparse.Nam
             print(f"\nAssistant: {assistant_msg}")
 
             if args.sources:
-                # Lightly print source count; you can print richer metadata if you like
                 print(f"\n[Sources used: {result.get('num_sources', len(result.get('sources', [])))}]")
-            # Append to history
             history.append((user_msg, assistant_msg))
 
         except KeyboardInterrupt:
@@ -629,7 +628,6 @@ Examples:
 
         # Interactive rolling chat with LLM
         if args.chat:
-            from collections import deque
             initiate_chat(
                 augmenter = augmenter,
                 retriever = retriever,

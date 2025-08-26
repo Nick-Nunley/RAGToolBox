@@ -16,7 +16,7 @@ try:
 except ImportError:
     TRANSFORMERS_AVAILABLE = False
 
-from RAGToolBox.augmenter import Augmenter
+from RAGToolBox.augmenter import Augmenter, initiate_chat
 from RAGToolBox.logging import LoggingConfig, RAGTBLogger
 
 
@@ -477,6 +477,355 @@ def test_generate_response_with_sources():
         mock_generate.assert_called_once_with(query, chunks, 0.25, 200)
 
 
+def test_make_history_chunk() -> None:
+    """Test that _make_history_chunk method returns a chat history chunk"""
+    from collections import deque
+
+    aug = Augmenter.__new__(Augmenter)
+
+    # Non-empty history
+    history = deque(
+        [
+            ("Hi", "Hello!"),
+            ("What is RAG?", "RAG is Retrieval-Augmented Generation."),
+        ],
+        maxlen=50,
+    )
+    chunk = aug._make_history_chunk(history)
+
+    assert isinstance(chunk, dict)
+    assert chunk["metadata"]["type"] == "history"
+    assert "Conversation so far:" in chunk["data"]
+    assert "User: Hi" in chunk["data"]
+    assert "Assistant: Hello!" in chunk["data"]
+    assert "User: What is RAG?" in chunk["data"]
+    assert "Assistant: RAG is Retrieval-Augmented Generation." in chunk["data"]
+
+    # Empty history falls back to empty data but keeps history metadata
+    empty = deque([], maxlen=50)
+    empty_chunk = aug._make_history_chunk(empty)
+    assert empty_chunk["data"] == ""
+    assert empty_chunk["metadata"]["type"] == "history"
+
+
+def test_process_query_once_without_sources(monkeypatch: pytest.MonkeyPatch) -> None:
+    """
+    Test that _process_query_once uses retriever,
+    injects history chunk, and calls generate_response.
+    """
+    from collections import deque
+
+    aug = Augmenter.__new__(Augmenter)
+
+    class _FakeRetriever:
+        def retrieve(self, query: str, top_k: int, max_retries: int):
+            assert query == "Q"
+            assert top_k == 5
+            assert max_retries == 7
+            return [
+                {"data": "KB chunk 1", "metadata": {"id": "k1"}},
+                {"data": "KB chunk 2", "metadata": {"id": "k2"}},
+            ]
+
+    retriever = _FakeRetriever()
+
+    history = deque(
+        [
+            ("old user msg", "old assistant msg"),
+            ("recent user msg", "recent assistant msg"),
+        ],
+        maxlen=50,
+    )
+
+    captured = {}
+    def _fake_generate(self, query, retrieved_chunks, temperature=0.25, max_new_tokens=200):
+        # Capture what _process_query_once sends to generate_response
+        captured["query"] = query
+        captured["retrieved_chunks"] = retrieved_chunks
+        captured["temperature"] = temperature
+        captured["max_new_tokens"] = max_new_tokens
+        return "final answer"
+
+    monkeypatch.setattr(Augmenter, "generate_response", _fake_generate, raising=True)
+
+    out = aug._process_query_once(
+        query="Q",
+        retriever=retriever,
+        top_k=5,
+        max_retries=7,
+        temperature=0.33,
+        max_new_tokens=128,
+        history=history,
+        include_sources=False,
+        history_turns=1,
+        )
+
+    assert out["response"] == "final answer"
+    assert out["num_sources"] == 2
+    assert out["sources"] == [
+        {"data": "KB chunk 1", "metadata": {"id": "k1"}},
+        {"data": "KB chunk 2", "metadata": {"id": "k2"}},
+        ]
+
+    assert captured["query"] == "Q"
+    assert captured["temperature"] == 0.33
+    assert captured["max_new_tokens"] == 128
+
+    rc = captured["retrieved_chunks"]
+    assert isinstance(rc, list) and len(rc) == 3
+    assert rc[0]["metadata"]["type"] == "history"
+
+    hist_text = rc[0]["data"]
+    assert "User: recent user msg" in hist_text
+    assert "Assistant: recent assistant msg" in hist_text
+    assert "User: old user msg" not in hist_text
+    assert "Assistant: old assistant msg" not in hist_text
+    assert rc[1]["data"] == "KB chunk 1"
+    assert rc[2]["data"] == "KB chunk 2"
+
+
+def test_process_query_once_with_sources(monkeypatch: pytest.MonkeyPatch) -> None:
+    """
+    Test that _process_query_once routes to generate_response_with_sources
+    when include_sources=True.
+    """
+    from collections import deque
+    aug = Augmenter.__new__(Augmenter)
+
+    class _FakeRetriever:
+        def retrieve(self, query: str, top_k: int, max_retries: int):
+            return [{"data": "KB", "metadata": {}}]
+
+    retriever = _FakeRetriever()
+    history = deque([("u1", "a1")], maxlen=50)
+
+    captured = {}
+    def _fake_generate_with_sources(self, query, retrieved_chunks, temperature=0.25, max_new_tokens=200):
+        captured["query"] = query
+        captured["retrieved_chunks"] = retrieved_chunks
+        return {
+            "response": "with sources",
+            "sources": retrieved_chunks,
+            "num_sources": len(retrieved_chunks),
+            "query": query,
+            "temperature": temperature,
+            "max_new_tokens": max_new_tokens,
+        }
+
+    monkeypatch.setattr(
+        Augmenter, "generate_response_with_sources", _fake_generate_with_sources, raising=True
+        )
+
+    out = aug._process_query_once(
+        query="hello",
+        retriever=retriever,
+        include_sources=True,
+        history=history,
+        history_turns=5
+        )
+
+    assert out["response"] == "with sources"
+    assert out["query"] == "hello"
+    assert out["num_sources"] == len(out["sources"]) == len(captured["retrieved_chunks"])
+    assert out["sources"][0]["metadata"].get("type") == "history"
+    assert "Conversation so far:" in out["sources"][0]["data"]
+
+
+def test_initiate_chat_basic_flow(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+    """
+    Test initiate_chat reads input, calls _process_query_once,
+    prints assistant reply, and exits cleanly.
+    """
+    from types import SimpleNamespace
+    from collections import deque
+
+    # Arrange: fake args and collaborators
+    args = SimpleNamespace(
+        top_k=10,
+        max_retries=5,
+        temperature=0.25,
+        max_tokens=200,
+        sources=False,
+        history_turns=3
+        )
+
+    augmenter = Augmenter.__new__(Augmenter)
+    retriever = object()
+
+    # Simulate user typing one message then exiting
+    inputs = iter(["Hello there", "exit"])
+    monkeypatch.setattr("builtins.input", lambda prompt="": next(inputs))
+
+    # Prevent sys.exit from ending the test
+    called_exit = {"code": None}
+    def _fake_exit(code=0):
+        called_exit["code"] = code
+        raise SystemExit(code)
+    monkeypatch.setattr("sys.exit", _fake_exit)
+
+    # Capture what initiate_chat passes into _process_query_once
+    seen_calls = {"history_obj": None, "kwargs": None}
+    def _fake_process(self, *, query, retriever, top_k, max_retries,
+                      temperature, max_new_tokens, history, include_sources,
+                      history_turns):
+        # record the deque and params
+        seen_calls["history_obj"] = history
+        seen_calls["kwargs"] = dict(
+            query=query, top_k=top_k, max_retries=max_retries,
+            temperature=temperature, max_new_tokens=max_new_tokens,
+            include_sources=include_sources, history_turns=history_turns,
+            retriever_is_passed=retriever is not None
+            )
+        return {"response": "Hi!", "sources": [], "num_sources": 0}
+
+    monkeypatch.setattr(Augmenter, "_process_query_once", _fake_process, raising=True)
+    with pytest.raises(SystemExit) as excinfo:
+        initiate_chat(augmenter=augmenter, retriever=retriever, args=args)
+
+    assert excinfo.value.code == 0
+    assert called_exit["code"] == 0
+
+    captured = capsys.readouterr()
+    assert "Chat mode: type your message." in captured.out
+    assert "Assistant: Hi!" in captured.out
+
+    assert seen_calls["kwargs"]["query"] == "Hello there"
+    assert seen_calls["kwargs"]["top_k"] == args.top_k
+    assert seen_calls["kwargs"]["max_retries"] == args.max_retries
+    assert seen_calls["kwargs"]["temperature"] == args.temperature
+    assert seen_calls["kwargs"]["max_new_tokens"] == args.max_tokens
+    assert seen_calls["kwargs"]["include_sources"] is False
+    assert seen_calls["kwargs"]["history_turns"] == args.history_turns
+    assert seen_calls["kwargs"]["retriever_is_passed"] is True
+
+    assert isinstance(seen_calls["history_obj"], deque)
+
+    user, assistant = seen_calls["history_obj"][-1]
+    assert user == "Hello there"
+    assert assistant == "Hi!"
+
+
+def test_initiate_chat_prints_sources_when_enabled(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+    """
+    Unit test: when args.sources=True, the function prints a [Sources used: N] line.
+    """
+    from types import SimpleNamespace
+
+    args = SimpleNamespace(
+        top_k=3,
+        max_retries=2,
+        temperature=0.4,
+        max_tokens=128,
+        sources=True,
+        history_turns=2
+        )
+
+    augmenter = Augmenter.__new__(Augmenter)
+    retriever = object()
+
+    # Simulate one message and exit
+    inputs = iter(["what are sources?", "quit"])
+    monkeypatch.setattr("builtins.input", lambda prompt="": next(inputs))
+    monkeypatch.setattr("sys.exit", lambda code=0: (_ for _ in ()).throw(SystemExit(code)))
+
+    # Return a response with a specific num_sources
+    def _fake_process_with_sources(self, **kwargs):
+        return {
+            "response": "Here you go.",
+            "sources": [{"data": "A", "metadata": {}}, {"data": "B", "metadata": {}}],
+            "num_sources": 2,
+            }
+
+    monkeypatch.setattr(Augmenter, "_process_query_once", _fake_process_with_sources, raising=True)
+
+    with pytest.raises(SystemExit):
+        initiate_chat(augmenter=augmenter, retriever=retriever, args=args)
+
+    out = capsys.readouterr().out
+    assert "Assistant: Here you go." in out
+    assert "[Sources used: 2]" in out
+
+
+def test_initiate_chat_handles_keyboard_interrupt(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+    """
+    Test when a KeyboardInterrupt occurs (e.g., Ctrl+C during input),
+    the function prints the 'Interrupted' message and exits cleanly (code 0).
+    """
+    from types import SimpleNamespace
+
+    args = SimpleNamespace(
+        top_k=5,
+        max_retries=3,
+        temperature=0.25,
+        max_tokens=200,
+        sources=False,
+        history_turns=3
+        )
+
+    augmenter = Augmenter.__new__(Augmenter)
+    retriever = object()
+
+    # First input call raises KeyboardInterrupt
+    monkeypatch.setattr("builtins.input", lambda prompt="": (_ for _ in ()).throw(KeyboardInterrupt()))
+    monkeypatch.setattr("sys.exit", lambda code=0: (_ for _ in ()).throw(SystemExit(code)))
+
+    with pytest.raises(SystemExit) as excinfo:
+        initiate_chat(augmenter=augmenter, retriever=retriever, args=args)
+
+    assert excinfo.value.code == 0
+    out = capsys.readouterr().out
+    assert "Interrupted. Exiting chat." in out
+
+
+def test_initiate_chat_handles_generic_exception_and_continues(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture,
+    capsys: pytest.CaptureFixture[str]
+    ) -> None:
+    """
+    Test if a generic Exception is raised during a turn, the function logs and prints
+    an error, then continues to prompt for the next input until user exits.
+    """
+    from types import SimpleNamespace
+
+    caplog.set_level(logging.DEBUG)
+    RAGTBLogger.setup_logging(LoggingConfig(console_level="DEBUG", log_file=None, force=False))
+
+    args = SimpleNamespace(
+        top_k=5, max_retries=3, temperature=0.25, max_tokens=200, sources=True, history_turns=3
+        )
+
+    augmenter = Augmenter.__new__(Augmenter)
+    retriever = object()
+
+    inputs = iter(["hello", "quit"])
+    monkeypatch.setattr("builtins.input", lambda prompt="": next(inputs))
+    monkeypatch.setattr("sys.exit", lambda code=0: (_ for _ in ()).throw(SystemExit(code)))
+
+    call_count = {"n": 0}
+    def _fake_process(**kwargs):
+        call_count["n"] += 1
+        if call_count["n"] == 1:
+            raise Exception("boom")
+        return {"response": "OK", "sources": [], "num_sources": 0}
+
+    monkeypatch.setattr(Augmenter, "_process_query_once", staticmethod(_fake_process), raising=True)
+
+    with pytest.raises(SystemExit) as excinfo:
+        initiate_chat(augmenter=augmenter, retriever=retriever, args=args)
+
+    assert excinfo.value.code == 0
+    out = capsys.readouterr().out
+    assert "Error: boom" in out
+    assert any("Chat turn failed" in rec.message and rec.levelname == "ERROR" for rec in caplog.records)
+
+
+
 # =====================
 # INTEGRATION TESTS
 # =====================
@@ -722,3 +1071,78 @@ def test_augmenter_integration_verbose_logging_no_context(
     )
     assert expected_msg in out
     assert expected_msg in caplog.text
+
+
+def test_initiate_chat(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    ) -> None:
+    """
+    Full test of augmenter module with --chat option and minimal mocks.
+    """
+    from types import SimpleNamespace
+
+    # Capture the actual prompt sent to the LLM
+    seen = {"prompts": []}
+
+    # Prevent HF client creation during Augmenter.__init__
+    monkeypatch.setattr(Augmenter, "_initialize_api_client", lambda self: None, raising=True)
+
+    # Stub the HF API call and capture the prompt
+    def _stub_hf(self, prompt: str, temperature: float, max_new_tokens: int) -> str:  # noqa: ARG002
+        seen["prompts"].append(prompt)
+        return "ok-from-llm"
+    monkeypatch.setattr(Augmenter, "_call_huggingface_api", _stub_hf, raising=True)
+
+    aug = Augmenter(api_key="dummy", use_local=False, prompt_type="default")
+
+    # Minimal fake retriever that returns two chunks
+    class _FakeRetriever:
+        def __init__(self):
+            self.calls = []
+        def retrieve(self, query: str, top_k: int, max_retries: int):
+            self.calls.append((query, top_k, max_retries))
+            return [
+                {"data": "KB chunk A", "metadata": {"id": "A"}},
+                {"data": "KB chunk B", "metadata": {"id": "B"}},
+            ]
+    retriever = _FakeRetriever()
+
+    args = SimpleNamespace(
+        top_k=7,
+        max_retries=3,
+        temperature=0.33,
+        max_tokens=128,
+        sources=True,
+        history_turns=2
+        )
+
+    # Simulate two turns and then exit
+    inputs = iter(["hello world", "second turn", "quit"])
+    monkeypatch.setattr("builtins.input", lambda prompt="": next(inputs))
+    monkeypatch.setattr("sys.exit", lambda code=0: (_ for _ in ()).throw(SystemExit(code)))
+
+    with pytest.raises(SystemExit) as excinfo:
+        initiate_chat(augmenter=aug, retriever=retriever, args=args)
+
+    assert excinfo.value.code == 0
+
+    # Printed output checks
+    out = capsys.readouterr().out
+    assert "Chat mode: type your message." in out
+    assert "Assistant: ok-from-llm" in out
+    assert "[Sources used: 2]" in out
+    # Second turn: 1 history + 2 KB chunks -> 3 sources
+    assert "[Sources used: 3]" in out
+
+    assert retriever.calls == [
+        ("hello world", args.top_k, args.max_retries),
+        ("second turn", args.top_k, args.max_retries)
+        ]
+
+    assert seen["prompts"], "Expected at least one prompt captured"
+    prompt = seen["prompts"][-1]
+
+    assert "KB chunk A" in prompt
+    assert "KB chunk B" in prompt
+    assert "hello world" in prompt
