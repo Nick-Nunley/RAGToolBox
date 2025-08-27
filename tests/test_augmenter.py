@@ -16,7 +16,8 @@ try:
 except ImportError:
     TRANSFORMERS_AVAILABLE = False
 
-from RAGToolBox.augmenter import Augmenter, initiate_chat
+from RAGToolBox.retriever import RetrievalConfig
+from RAGToolBox.augmenter import Augmenter, GenerationConfig, ChatConfig, initiate_chat
 from RAGToolBox.logging import LoggingConfig, RAGTBLogger
 
 
@@ -474,7 +475,7 @@ def test_generate_response_with_sources():
             "max_new_tokens": 200
         }
         assert result == expected
-        mock_generate.assert_called_once_with(query, chunks, 0.25, 200)
+        mock_generate.assert_called_once_with(query, chunks, GenerationConfig(0.25, 200))
 
 
 def test_make_history_chunk() -> None:
@@ -518,10 +519,10 @@ def test_process_query_once_without_sources(monkeypatch: pytest.MonkeyPatch) -> 
     aug = Augmenter.__new__(Augmenter)
 
     class _FakeRetriever:
-        def retrieve(self, query: str, top_k: int, max_retries: int):
+        def retrieve(self, query: str, ret_config: RetrievalConfig):
             assert query == "Q"
-            assert top_k == 5
-            assert max_retries == 7
+            assert ret_config.top_k == 5
+            assert ret_config.max_retries == 7
             return [
                 {"data": "KB chunk 1", "metadata": {"id": "k1"}},
                 {"data": "KB chunk 2", "metadata": {"id": "k2"}},
@@ -538,26 +539,34 @@ def test_process_query_once_without_sources(monkeypatch: pytest.MonkeyPatch) -> 
     )
 
     captured = {}
-    def _fake_generate(self, query, retrieved_chunks, temperature=0.25, max_new_tokens=200):
+    def _fake_generate(self, query, retrieved_chunks, gen_config):
         # Capture what _process_query_once sends to generate_response
         captured["query"] = query
         captured["retrieved_chunks"] = retrieved_chunks
-        captured["temperature"] = temperature
-        captured["max_new_tokens"] = max_new_tokens
+        captured["temperature"] = gen_config.temperature
+        captured["max_new_tokens"] = gen_config.max_new_tokens
         return "final answer"
 
     monkeypatch.setattr(Augmenter, "generate_response", _fake_generate, raising=True)
 
+    chat_config = ChatConfig(
+        ret_config = RetrievalConfig(
+            top_k=5,
+            max_retries=7
+            ),
+        gen_config = GenerationConfig(
+            temperature=0.33,
+            max_new_tokens=128
+            ),
+        history=history,
+        include_sources=False,
+        history_turns=1
+        )
+
     out = aug._process_query_once(
         query="Q",
         retriever=retriever,
-        top_k=5,
-        max_retries=7,
-        temperature=0.33,
-        max_new_tokens=128,
-        history=history,
-        include_sources=False,
-        history_turns=1,
+        chat_config = chat_config
         )
 
     assert out["response"] == "final answer"
@@ -593,14 +602,14 @@ def test_process_query_once_with_sources(monkeypatch: pytest.MonkeyPatch) -> Non
     aug = Augmenter.__new__(Augmenter)
 
     class _FakeRetriever:
-        def retrieve(self, query: str, top_k: int, max_retries: int):
+        def retrieve(self, query: str, ret_config: RetrievalConfig):
             return [{"data": "KB", "metadata": {}}]
 
     retriever = _FakeRetriever()
     history = deque([("u1", "a1")], maxlen=50)
 
     captured = {}
-    def _fake_generate_with_sources(self, query, retrieved_chunks, temperature=0.25, max_new_tokens=200):
+    def _fake_generate_with_sources(self, query, retrieved_chunks, gen_config):
         captured["query"] = query
         captured["retrieved_chunks"] = retrieved_chunks
         return {
@@ -608,20 +617,32 @@ def test_process_query_once_with_sources(monkeypatch: pytest.MonkeyPatch) -> Non
             "sources": retrieved_chunks,
             "num_sources": len(retrieved_chunks),
             "query": query,
-            "temperature": temperature,
-            "max_new_tokens": max_new_tokens,
+            "temperature": gen_config.temperature,
+            "max_new_tokens": gen_config.max_new_tokens,
         }
 
     monkeypatch.setattr(
         Augmenter, "generate_response_with_sources", _fake_generate_with_sources, raising=True
         )
 
+    chat_config = ChatConfig(
+        ret_config = RetrievalConfig(
+            top_k=5,
+            max_retries=7
+            ),
+        gen_config = GenerationConfig(
+            temperature=0.33,
+            max_new_tokens=128
+            ),
+        history=history,
+        include_sources=True,
+        history_turns=5
+        )
+
     out = aug._process_query_once(
         query="hello",
         retriever=retriever,
-        include_sources=True,
-        history=history,
-        history_turns=5
+        chat_config = chat_config
         )
 
     assert out["response"] == "with sources"
@@ -667,15 +688,15 @@ def test_initiate_chat_basic_flow(
 
     # Capture what initiate_chat passes into _process_query_once
     seen_calls = {"history_obj": None, "kwargs": None}
-    def _fake_process(self, *, query, retriever, top_k, max_retries,
-                      temperature, max_new_tokens, history, include_sources,
-                      history_turns):
+    def _fake_process(self, *, query, retriever, chat_config):
         # record the deque and params
-        seen_calls["history_obj"] = history
+        seen_calls["history_obj"] = chat_config.history
         seen_calls["kwargs"] = dict(
-            query=query, top_k=top_k, max_retries=max_retries,
-            temperature=temperature, max_new_tokens=max_new_tokens,
-            include_sources=include_sources, history_turns=history_turns,
+            query=query, top_k=chat_config.ret_config.top_k,
+            max_retries=chat_config.ret_config.max_retries,
+            temperature=chat_config.gen_config.temperature,
+            max_new_tokens=chat_config.gen_config.max_new_tokens,
+            include_sources=chat_config.include_sources, history_turns=chat_config.history_turns,
             retriever_is_passed=retriever is not None
             )
         return {"response": "Hi!", "sources": [], "num_sources": 0}
@@ -1035,7 +1056,7 @@ def test_augmenter_integration_verbose_logging_with_context(
 
     # Run end-to-end with context
     out = aug.generate_response(
-        "ultrasound therapy", _fake_chunks(), temperature=0.2, max_new_tokens=32
+        "ultrasound therapy", _fake_chunks(), GenerationConfig(temperature=0.2, max_new_tokens=32)
         )
 
     assert out == "stubbed-answer"
@@ -1100,8 +1121,8 @@ def test_initiate_chat(
     class _FakeRetriever:
         def __init__(self):
             self.calls = []
-        def retrieve(self, query: str, top_k: int, max_retries: int):
-            self.calls.append((query, top_k, max_retries))
+        def retrieve(self, query: str, ret_config: RetrievalConfig):
+            self.calls.append((query, ret_config.top_k, ret_config.max_retries))
             return [
                 {"data": "KB chunk A", "metadata": {"id": "A"}},
                 {"data": "KB chunk B", "metadata": {"id": "B"}},
