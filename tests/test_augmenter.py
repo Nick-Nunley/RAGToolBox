@@ -565,7 +565,7 @@ def test_process_query_once_without_sources(monkeypatch: pytest.MonkeyPatch) -> 
 
     out = aug._process_query_once(
         query="Q",
-        retriever=retriever,
+        retriever_obj=retriever,
         chat_config = chat_config
         )
 
@@ -641,7 +641,7 @@ def test_process_query_once_with_sources(monkeypatch: pytest.MonkeyPatch) -> Non
 
     out = aug._process_query_once(
         query="hello",
-        retriever=retriever,
+        retriever_obj=retriever,
         chat_config = chat_config
         )
 
@@ -688,7 +688,7 @@ def test_initiate_chat_basic_flow(
 
     # Capture what initiate_chat passes into _process_query_once
     seen_calls = {"history_obj": None, "kwargs": None}
-    def _fake_process(self, *, query, retriever, chat_config):
+    def _fake_process(self, *, query, retriever_obj, chat_config):
         # record the deque and params
         seen_calls["history_obj"] = chat_config.history
         seen_calls["kwargs"] = dict(
@@ -703,7 +703,7 @@ def test_initiate_chat_basic_flow(
 
     monkeypatch.setattr(Augmenter, "_process_query_once", _fake_process, raising=True)
     with pytest.raises(SystemExit) as excinfo:
-        initiate_chat(augmenter=augmenter, retriever=retriever, args=args)
+        initiate_chat(augmenter_obj=augmenter, retriever_obj=retriever, command_args=args)
 
     assert excinfo.value.code == 0
     assert called_exit["code"] == 0
@@ -764,7 +764,7 @@ def test_initiate_chat_prints_sources_when_enabled(
     monkeypatch.setattr(Augmenter, "_process_query_once", _fake_process_with_sources, raising=True)
 
     with pytest.raises(SystemExit):
-        initiate_chat(augmenter=augmenter, retriever=retriever, args=args)
+        initiate_chat(augmenter_obj=augmenter, retriever_obj=retriever, command_args=args)
 
     out = capsys.readouterr().out
     assert "Assistant: Here you go." in out
@@ -797,7 +797,7 @@ def test_initiate_chat_handles_keyboard_interrupt(
     monkeypatch.setattr("sys.exit", lambda code=0: (_ for _ in ()).throw(SystemExit(code)))
 
     with pytest.raises(SystemExit) as excinfo:
-        initiate_chat(augmenter=augmenter, retriever=retriever, args=args)
+        initiate_chat(augmenter_obj=augmenter, retriever_obj=retriever, command_args=args)
 
     assert excinfo.value.code == 0
     out = capsys.readouterr().out
@@ -838,7 +838,7 @@ def test_initiate_chat_handles_generic_exception_and_continues(
     monkeypatch.setattr(Augmenter, "_process_query_once", staticmethod(_fake_process), raising=True)
 
     with pytest.raises(SystemExit) as excinfo:
-        initiate_chat(augmenter=augmenter, retriever=retriever, args=args)
+        initiate_chat(augmenter_obj=augmenter, retriever_obj=retriever, command_args=args)
 
     assert excinfo.value.code == 0
     out = capsys.readouterr().out
@@ -1144,7 +1144,7 @@ def test_initiate_chat(
     monkeypatch.setattr("sys.exit", lambda code=0: (_ for _ in ()).throw(SystemExit(code)))
 
     with pytest.raises(SystemExit) as excinfo:
-        initiate_chat(augmenter=aug, retriever=retriever, args=args)
+        initiate_chat(augmenter_obj=aug, retriever_obj=retriever, command_args=args)
 
     assert excinfo.value.code == 0
 

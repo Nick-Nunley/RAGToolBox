@@ -53,22 +53,22 @@ class ChatConfig:
     include_sources: bool = False
     history_turns: int = 5
 
-def _init_chat_config(history: deque[tuple[str, str]], args: argparse.Namespace) -> ChatConfig:
+def _init_chat_config(history: deque[tuple[str, str]], command_args: argparse.Namespace) -> ChatConfig:
     """Helper function for constructing a ChatConfig"""
     ret_config = RetrievalConfig(
-        top_k=args.top_k,
-        max_retries=args.max_retries
+        top_k=command_args.top_k,
+        max_retries=command_args.max_retries
         )
     gen_config = GenerationConfig(
-        temperature=args.temperature,
-        max_new_tokens=args.max_tokens
+        temperature=command_args.temperature,
+        max_new_tokens=command_args.max_tokens
         )
     chat_config = ChatConfig(
         ret_config = ret_config,
         gen_config = gen_config,
         history = history,
-        include_sources=args.sources,
-        history_turns=args.history_turns
+        include_sources=command_args.sources,
+        history_turns=command_args.history_turns
         )
     return chat_config
 
@@ -435,7 +435,7 @@ class Augmenter:
     def _process_query_once(
         self,
         query: str,
-        retriever: Retriever,
+        retriever_obj: Retriever,
         chat_config: ChatConfig
         ) -> dict:
         """
@@ -446,13 +446,16 @@ class Augmenter:
         - return a dict with message + (optional) sources.
         """
         # Retrieve fresh context for this turn
-        retrieved = retriever.retrieve(query=query, ret_config=chat_config.ret_config)
+        retrieved = retriever_obj.retrieve(query=query, ret_config=chat_config.ret_config)
 
         # Optionally include rolling chat history as a synthetic "context" chunk
         extra_chunks: list[RetrievedChunk] = []
         if chat_config.history and len(chat_config.history) > 0:
             # Only include the most recent N turns
-            recent = deque(list(chat_config.history)[-chat_config.history_turns:], maxlen=chat_config.history_turns)
+            recent = deque(
+                list(chat_config.history)[-chat_config.history_turns:],
+                maxlen=chat_config.history_turns
+                )
             hist_chunk = self._make_history_chunk(recent)
             if hist_chunk["data"]:
                 extra_chunks.append(hist_chunk)
@@ -475,14 +478,16 @@ class Augmenter:
             )
         return {"response": msg, "sources": retrieved, "num_sources": len(retrieved)}
 
-def initiate_chat(augmenter: Augmenter, retriever: Retriever, args: argparse.Namespace) -> None:
+def initiate_chat(
+    augmenter_obj: Augmenter, retriever_obj: Retriever, command_args: argparse.Namespace
+    ) -> None:
     """
     Function to initiate a rolling chat with LLM.
 
     Args:
-        retriever: A Retriever instance for fetching context chunks.
-        augmenter: An Augmenter instance for generating responses.
-        args: Parsed CLI arguments (argparse.Namespace) with attributes:
+        retriever_obj: A Retriever instance for fetching context chunks.
+        augmenter_obj: An Augmenter instance for generating responses.
+        command_args: Parsed CLI arguments (argparse.Namespace) with attributes:
             - top_k (int)
             - max_retries (int)
             - temperature (float)
@@ -491,7 +496,7 @@ def initiate_chat(augmenter: Augmenter, retriever: Retriever, args: argparse.Nam
             - history_turns (int)
     """
     print("Chat mode: type your message. Type 'quit' or 'exit' to leave.")
-    history: deque[tuple[str, str]] = deque(maxlen=50) # keep a longer rolling buffer; we'll slice per-turn
+    history: deque[tuple[str, str]] = deque(maxlen=50)
 
     while True:
         try:
@@ -499,19 +504,20 @@ def initiate_chat(augmenter: Augmenter, retriever: Retriever, args: argparse.Nam
             if user_msg.lower() in {"quit", "exit"}:
                 break
             # process one turn
-            result = augmenter._process_query_once( # pylint: disable=protected-access
+            result = augmenter_obj._process_query_once( # pylint: disable=protected-access
                 query=user_msg,
-                retriever=retriever,
+                retriever_obj=retriever_obj,
                 chat_config = _init_chat_config(
                     history=history,
-                    args=args
+                    command_args=command_args
                     )
                 )
             assistant_msg = result["response"]
             print(f"\nAssistant: {assistant_msg}")
 
-            if args.sources:
-                print(f"\n[Sources used: {result.get('num_sources', len(result.get('sources', [])))}]")
+            if command_args.sources:
+                print(f"\n[Sources used: "
+                f"{result.get('num_sources', len(result.get('sources', [])))}]")
             history.append((user_msg, assistant_msg))
 
         except KeyboardInterrupt:
