@@ -31,6 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Configuration support** with sensible defaults and environment variable handling.
 - **Testing framework** with `pytest` and GitHub Actions CI workflow.
 - README with installation, quickstart, and CLI usage
+- Interactive chat feature with knowledgebase *via* `RAGToolBox.augmenter --chat`
 
 ---
 

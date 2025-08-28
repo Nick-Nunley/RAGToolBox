@@ -169,6 +169,9 @@ python -m RAGToolBox.augmenter "What is RAG?" --sources
 
 # For a concise one-liner answer
 python -m RAGToolBox.augmenter "What is RAG?" --prompt-type concise
+
+# Interactively chat with your knowledgebase
+python -m RAGToolBox.augmenter --chat
 ```
 
 ---
@@ -181,7 +184,7 @@ Run the full test suite:
 bash tests/Run_tests.sh
 ```
 
-Continuous integration is configured via GitHub Actions (see `.github/workflows/ci.yml`).
+Continuous integration is configured *via* GitHub Actions (see `.github/workflows/ci.yml`).
 
 ---
 
