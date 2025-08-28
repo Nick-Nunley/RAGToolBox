@@ -450,7 +450,6 @@ class Augmenter:
         # Retrieve fresh context for this turn
         retrieved = retriever_obj.retrieve(query=query, ret_config=chat_config.ret_config)
 
-        # Optionally include rolling chat history as a synthetic "context" chunk
         extra_chunks: list[RetrievedChunk] = []
         if chat_config.history and len(chat_config.history) > 0:
             # Only include the most recent N turns
@@ -515,6 +514,7 @@ def initiate_chat(
                     )
                 )
             assistant_msg = result["response"]
+            logger.debug('Q: %s. A: %s', user_msg, result)
             print(f"\nAssistant: {assistant_msg}")
 
             if command_args.sources:
