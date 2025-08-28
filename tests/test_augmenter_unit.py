@@ -4,8 +4,8 @@
 
 import os
 import logging
-from typing import List, Dict, Union
-from unittest.mock import patch, MagicMock, Mock
+from typing import Dict, Any, Callable, Tuple
+from unittest.mock import patch, MagicMock
 import pytest
 
 # Check for optional dependencies
@@ -19,22 +19,6 @@ except ImportError:
 from RAGToolBox.retriever import RetrievalConfig
 from RAGToolBox.augmenter import Augmenter, GenerationConfig, ChatConfig, initiate_chat
 from RAGToolBox.logging import LoggingConfig, RAGTBLogger
-
-
-# Helpers and mocks
-
-def _stub_call_hf(
-    self, prompt: str, temperature: float, max_new_tokens: int # pylint: disable=unused-argument
-    ) -> str:
-    # We can assert prompt has our chunk text if desired:
-    assert "Context 1: chunk A about ultrasound therapy" in prompt
-    return "stubbed-answer"
-
-def _fake_chunks() -> List[Dict[str, Union[str, Dict[str, str]]]]:
-    return [
-        {"data": "chunk A about ultrasound therapy", "metadata": {"id": "A"}},
-        {"data": "chunk B about brain stimulation", "metadata": {"id": "B"}},
-    ]
 
 
 # =====================
@@ -248,72 +232,39 @@ def test_format_prompt_empty_chunks():
 @pytest.mark.skipif(
     not TRANSFORMERS_AVAILABLE, reason="transformers and torch packages not available"
     )
-def test_call_local_model():
+def test_call_local_model(
+    local_transformers: Tuple[MagicMock, MagicMock]
+    ) -> None:
     """Test local model inference."""
-    with patch('transformers.AutoTokenizer') as mock_tokenizer_class, \
-         patch('transformers.AutoModelForCausalLM') as mock_model_class, \
-         patch('torch.no_grad') as mock_no_grad:
+    tokenizer, model = local_transformers
 
-        # Setup mocks
-        mock_tokenizer = MagicMock()
-        mock_tokenizer.encode.return_value = MagicMock(shape=[1, 10])
-        mock_tokenizer.decode.return_value = "Input prompt Generated response"
-        mock_tokenizer.eos_token_id = 2
-        mock_tokenizer_class.from_pretrained.return_value = mock_tokenizer
+    augmenter = Augmenter(use_local=True)
+    augmenter.tokenizer = tokenizer
+    augmenter.model = model
 
-        mock_model = MagicMock()
-        mock_outputs = MagicMock()
-        mock_outputs[0] = MagicMock()
-        mock_model.generate.return_value = mock_outputs
-        mock_model_class.from_pretrained.return_value = mock_model
+    result = augmenter._call_local_model("Test prompt")
 
-        mock_no_grad.return_value.__enter__ = Mock()
-        mock_no_grad.return_value.__exit__ = Mock(return_value=None)
-
-        augmenter = Augmenter(use_local=True)
-        augmenter.tokenizer = mock_tokenizer
-        augmenter.model = mock_model
-
-        prompt = "Test prompt"
-        result = augmenter._call_local_model(prompt)
-
-        assert result == "Generated response"
-        mock_tokenizer.encode.assert_called_once()
-        mock_model.generate.assert_called_once()
+    assert result == "Generated response"
+    tokenizer.encode.assert_called_once()
+    model.generate.assert_called_once()
 
 
 @pytest.mark.skipif(
     not TRANSFORMERS_AVAILABLE, reason="transformers and torch packages not available"
     )
-def test_call_local_model_empty_response():
+def test_call_local_model_empty_response(
+    local_transformers: Tuple[MagicMock, MagicMock]
+    ) -> None:
     """Test local model inference with empty response."""
-    with patch('transformers.AutoTokenizer') as mock_tokenizer_class, \
-         patch('transformers.AutoModelForCausalLM') as mock_model_class, \
-         patch('torch.no_grad') as mock_no_grad:
+    tokenizer, model = local_transformers
+    tokenizer.decode.return_value = "Input prompt"  # No generated content
 
-        mock_tokenizer = MagicMock()
-        mock_tokenizer.encode.return_value = MagicMock(shape=[1, 10])
-        mock_tokenizer.decode.return_value = "Input prompt"  # No generated content
-        mock_tokenizer.eos_token_id = 2
-        mock_tokenizer_class.from_pretrained.return_value = mock_tokenizer
+    augmenter = Augmenter(use_local=True)
+    augmenter.tokenizer = tokenizer
+    augmenter.model = model
 
-        mock_model = MagicMock()
-        mock_outputs = MagicMock()
-        mock_outputs[0] = MagicMock()
-        mock_model.generate.return_value = mock_outputs
-        mock_model_class.from_pretrained.return_value = mock_model
-
-        mock_no_grad.return_value.__enter__ = Mock()
-        mock_no_grad.return_value.__exit__ = Mock(return_value=None)
-
-        augmenter = Augmenter(use_local=True)
-        augmenter.tokenizer = mock_tokenizer
-        augmenter.model = mock_model
-
-        prompt = "Test prompt"
-        result = augmenter._call_local_model(prompt)
-
-        assert result == "I don't have enough information to provide a detailed answer."
+    result = augmenter._call_local_model("Test prompt")
+    assert result == "I don't have enough information to provide a detailed answer."
 
 
 @pytest.mark.skipif(
@@ -332,69 +283,60 @@ def test_call_local_model_exception():
         augmenter._call_local_model("test prompt")
 
 
-def test_call_huggingface_api_success():
+def test_call_huggingface_api_success(
+    hf_completion: Callable[[str], MagicMock]
+    ) -> None:
     """Test successful Hugging Face API call."""
-    with patch('huggingface_hub.InferenceClient') as mock_client_class:
-        mock_client = MagicMock()
-        mock_completion = MagicMock()
-        mock_choice = MagicMock()
-        mock_message = MagicMock()
-        mock_message.content = "Generated response"
-        mock_choice.message = mock_message
-        mock_completion.choices = [mock_choice]
-        mock_client.chat.completions.create.return_value = mock_completion
-        mock_client_class.return_value = mock_client
+    mock_client = hf_completion("Generated response")
+    augmenter = Augmenter(api_key="test_key")
+    augmenter.client = mock_client
 
-        augmenter = Augmenter(api_key="test_key")
-        augmenter.client = mock_client
+    result = augmenter._call_huggingface_api("Test prompt")
 
-        prompt = "Test prompt"
-        result = augmenter._call_huggingface_api(prompt)
-
-        assert result == "Generated response"
-        mock_client.chat.completions.create.assert_called_once()
+    assert result == "Generated response"
+    mock_client.chat.completions.create.assert_called_once()
 
 
-def test_call_huggingface_api_model_not_found():
+def test_call_huggingface_api_model_not_found(
+    hf_completion: Callable[[str], MagicMock]
+    ) -> None:
     """Test Hugging Face API call with model not found error."""
-    with patch('huggingface_hub.InferenceClient') as mock_client_class:
-        mock_client = MagicMock()
-        mock_client.chat.completions.create.side_effect = Exception("404 Not Found")
-        mock_client_class.return_value = mock_client
+    mock_client = hf_completion()
+    augmenter = Augmenter(api_key="test_key")
+    augmenter.client = mock_client
 
-        augmenter = Augmenter(api_key="test_key")
-        augmenter.client = mock_client
+    mock_client.chat.completions.create.side_effect = Exception("404 Not Found")
 
-        with pytest.raises(RuntimeError, match="Model 'google/gemma-2-2b-it' is not available"):
-            augmenter._call_huggingface_api("test prompt")
+    with pytest.raises(RuntimeError, match="Model 'google/gemma-2-2b-it' is not available"):
+        augmenter._call_huggingface_api("test prompt")
 
 
-def test_call_huggingface_api_authentication_error():
+def test_call_huggingface_api_authentication_error(
+    hf_completion: Callable[[str], MagicMock]
+    ) -> None:
     """Test Hugging Face API call with authentication error."""
-    with patch('huggingface_hub.InferenceClient') as mock_client_class:
-        mock_client = MagicMock()
-        mock_client.chat.completions.create.side_effect = Exception("Authentication failed")
-        mock_client_class.return_value = mock_client
+    mock_client = hf_completion()
+    augmenter = Augmenter(api_key="test_key")
+    augmenter.client = mock_client
 
-        augmenter = Augmenter(api_key="test_key")
-        augmenter.client = mock_client
+    mock_client.chat.completions.create.side_effect = Exception("Authentication failed")
 
-        with pytest.raises(RuntimeError, match="Authentication error"):
-            augmenter._call_huggingface_api("test prompt")
+    with pytest.raises(RuntimeError, match="Authentication error"):
+        augmenter._call_huggingface_api("test prompt")
 
 
-def test_call_huggingface_api_generic_error():
+def test_call_huggingface_api_generic_error(
+    hf_completion: Callable[[str], MagicMock]
+    ) -> None:
     """Test Hugging Face API call with generic error."""
-    with patch('huggingface_hub.InferenceClient') as mock_client_class:
-        mock_client = MagicMock()
-        mock_client.chat.completions.create.side_effect = Exception("Generic API error")
-        mock_client_class.return_value = mock_client
+    mock_client = hf_completion()
+    augmenter = Augmenter(api_key="test_key")
+    augmenter.client = mock_client
 
-        augmenter = Augmenter(api_key="test_key")
-        augmenter.client = mock_client
+    mock_client.chat.completions.create.side_effect = Exception("Generic API error")
 
-        with pytest.raises(RuntimeError, match="Error calling Hugging Face API"):
-            augmenter._call_huggingface_api("test prompt")
+    with pytest.raises(RuntimeError, match="Error calling Hugging Face API"):
+        augmenter._call_huggingface_api("test prompt")
 
 
 @pytest.mark.skipif(
@@ -443,16 +385,11 @@ def test_generate_response_with_chunks():
         mock_call.assert_called_once_with("Formatted prompt", 0.25, 200)
 
 
-def test_generate_response_empty_chunks():
+def test_generate_response_empty_chunks(fallback_message: str) -> None:
     """Test response generation with empty chunks."""
     augmenter = Augmenter()
-    query = "What is LIFU?"
-    chunks = []
-
-    result = augmenter.generate_response(query, chunks)
-
-    assert result == "I don't have enough information to answer your question. " + \
-    "Please try rephrasing or expanding your query."
+    result = augmenter.generate_response("What is LIFU?", [])
+    assert result == fallback_message
 
 
 def test_generate_response_with_sources():
@@ -519,7 +456,9 @@ def test_process_query_once_without_sources(monkeypatch: pytest.MonkeyPatch) -> 
     aug = Augmenter.__new__(Augmenter)
 
     class _FakeRetriever:
+        """Mock retriever"""
         def retrieve(self, query: str, ret_config: RetrievalConfig):
+            """Mock retrieve method"""
             assert query == "Q"
             assert ret_config.top_k == 5
             assert ret_config.max_retries == 7
@@ -539,7 +478,7 @@ def test_process_query_once_without_sources(monkeypatch: pytest.MonkeyPatch) -> 
     )
 
     captured = {}
-    def _fake_generate(self, query, retrieved_chunks, gen_config):
+    def _fake_generate(self, query, retrieved_chunks, gen_config): # pylint: disable=unused-argument
         # Capture what _process_query_once sends to generate_response
         captured["query"] = query
         captured["retrieved_chunks"] = retrieved_chunks
@@ -602,14 +541,18 @@ def test_process_query_once_with_sources(monkeypatch: pytest.MonkeyPatch) -> Non
     aug = Augmenter.__new__(Augmenter)
 
     class _FakeRetriever:
-        def retrieve(self, query: str, ret_config: RetrievalConfig):
+        """Mock retriever"""
+        def retrieve(self, query: str, ret_config: RetrievalConfig): # pylint: disable=unused-argument
+            """Mock retrieve method"""
             return [{"data": "KB", "metadata": {}}]
 
     retriever = _FakeRetriever()
     history = deque([("u1", "a1")], maxlen=50)
 
     captured = {}
-    def _fake_generate_with_sources(self, query, retrieved_chunks, gen_config):
+    def _fake_generate_with_sources(
+        self, query, retrieved_chunks, gen_config # pylint: disable=unused-argument
+        ):
         captured["query"] = query
         captured["retrieved_chunks"] = retrieved_chunks
         return {
@@ -652,7 +595,7 @@ def test_process_query_once_with_sources(monkeypatch: pytest.MonkeyPatch) -> Non
     assert "Conversation so far:" in out["sources"][0]["data"]
 
 
-def test_initiate_chat_basic_flow(
+def test_initiate_chat_basic_flow( # pylint: disable=too-many-locals
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
     """
@@ -687,18 +630,19 @@ def test_initiate_chat_basic_flow(
     monkeypatch.setattr("sys.exit", _fake_exit)
 
     # Capture what initiate_chat passes into _process_query_once
-    seen_calls = {"history_obj": None, "kwargs": None}
-    def _fake_process(self, *, query, retriever_obj, chat_config):
+    seen_calls: Dict[str, Any] = {"history_obj": None, "kwargs": None}
+    def _fake_process(self, *, query, retriever_obj, chat_config): # pylint: disable=unused-argument
         # record the deque and params
         seen_calls["history_obj"] = chat_config.history
-        seen_calls["kwargs"] = dict(
-            query=query, top_k=chat_config.ret_config.top_k,
-            max_retries=chat_config.ret_config.max_retries,
-            temperature=chat_config.gen_config.temperature,
-            max_new_tokens=chat_config.gen_config.max_new_tokens,
-            include_sources=chat_config.include_sources, history_turns=chat_config.history_turns,
-            retriever_is_passed=retriever is not None
-            )
+        seen_calls["kwargs"] = {
+            'query': query, 'top_k': chat_config.ret_config.top_k,
+            'max_retries': chat_config.ret_config.max_retries,
+            'temperature': chat_config.gen_config.temperature,
+            'max_new_tokens': chat_config.gen_config.max_new_tokens,
+            'include_sources': chat_config.include_sources,
+            'history_turns': chat_config.history_turns,
+            'retriever_is_passed': retriever is not None
+            }
         return {"response": "Hi!", "sources": [], "num_sources": 0}
 
     monkeypatch.setattr(Augmenter, "_process_query_once", _fake_process, raising=True)
@@ -712,18 +656,18 @@ def test_initiate_chat_basic_flow(
     assert "Chat mode: type your message." in captured.out
     assert "Assistant: Hi!" in captured.out
 
-    assert seen_calls["kwargs"]["query"] == "Hello there"
-    assert seen_calls["kwargs"]["top_k"] == args.top_k
-    assert seen_calls["kwargs"]["max_retries"] == args.max_retries
-    assert seen_calls["kwargs"]["temperature"] == args.temperature
-    assert seen_calls["kwargs"]["max_new_tokens"] == args.max_tokens
-    assert seen_calls["kwargs"]["include_sources"] is False
-    assert seen_calls["kwargs"]["history_turns"] == args.history_turns
-    assert seen_calls["kwargs"]["retriever_is_passed"] is True
+    assert seen_calls.get("kwargs")["query"] == "Hello there"
+    assert seen_calls.get("kwargs")["top_k"] == args.top_k
+    assert seen_calls.get("kwargs")["max_retries"] == args.max_retries
+    assert seen_calls.get("kwargs")["temperature"] == args.temperature
+    assert seen_calls.get("kwargs")["max_new_tokens"] == args.max_tokens
+    assert seen_calls.get("kwargs")["include_sources"] is False
+    assert seen_calls.get("kwargs")["history_turns"] == args.history_turns
+    assert seen_calls.get("kwargs")["retriever_is_passed"] is True
 
     assert isinstance(seen_calls["history_obj"], deque)
 
-    user, assistant = seen_calls["history_obj"][-1]
+    user, assistant = seen_calls.get("history_obj")[-1]
     assert user == "Hello there"
     assert assistant == "Hi!"
 
@@ -754,7 +698,7 @@ def test_initiate_chat_prints_sources_when_enabled(
     monkeypatch.setattr("sys.exit", lambda code=0: (_ for _ in ()).throw(SystemExit(code)))
 
     # Return a response with a specific num_sources
-    def _fake_process_with_sources(self, **kwargs):
+    def _fake_process_with_sources(self, **kwargs): # pylint: disable=unused-argument
         return {
             "response": "Here you go.",
             "sources": [{"data": "A", "metadata": {}}, {"data": "B", "metadata": {}}],
@@ -793,7 +737,10 @@ def test_initiate_chat_handles_keyboard_interrupt(
     retriever = object()
 
     # First input call raises KeyboardInterrupt
-    monkeypatch.setattr("builtins.input", lambda prompt="": (_ for _ in ()).throw(KeyboardInterrupt()))
+    monkeypatch.setattr(
+        "builtins.input",
+        lambda prompt="": (_ for _ in ()).throw(KeyboardInterrupt())
+        )
     monkeypatch.setattr("sys.exit", lambda code=0: (_ for _ in ()).throw(SystemExit(code)))
 
     with pytest.raises(SystemExit) as excinfo:
@@ -829,10 +776,10 @@ def test_initiate_chat_handles_generic_exception_and_continues(
     monkeypatch.setattr("sys.exit", lambda code=0: (_ for _ in ()).throw(SystemExit(code)))
 
     call_count = {"n": 0}
-    def _fake_process(**kwargs):
+    def _fake_process(**kwargs): # pylint: disable=unused-argument
         call_count["n"] += 1
         if call_count["n"] == 1:
-            raise Exception("boom")
+            raise RuntimeError("boom")
         return {"response": "OK", "sources": [], "num_sources": 0}
 
     monkeypatch.setattr(Augmenter, "_process_query_once", staticmethod(_fake_process), raising=True)
@@ -843,327 +790,6 @@ def test_initiate_chat_handles_generic_exception_and_continues(
     assert excinfo.value.code == 0
     out = capsys.readouterr().out
     assert "Error: boom" in out
-    assert any("Chat turn failed" in rec.message and rec.levelname == "ERROR" for rec in caplog.records)
-
-
-
-# =====================
-# INTEGRATION TESTS
-# =====================
-
-def test_full_augmenter_workflow_api():
-    """Test complete augmenter workflow using API."""
-    with patch('huggingface_hub.InferenceClient') as mock_client_class:
-        mock_client = MagicMock()
-        mock_completion = MagicMock()
-        mock_choice = MagicMock()
-        mock_message = MagicMock()
-        mock_message.content = "LIFU (Low-Intensity Focused Ultrasound) " + \
-        "is a therapeutic technique that uses focused ultrasound waves."
-        mock_choice.message = mock_message
-        mock_completion.choices = [mock_choice]
-        mock_client.chat.completions.create.return_value = mock_completion
-        mock_client_class.return_value = mock_client
-
-        augmenter = Augmenter(api_key="test_key")
-        augmenter.client = mock_client
-
-        query = "What is LIFU?"
-        chunks = [
-            {"data": "LIFU stands for Low-Intensity Focused Ultrasound.", "metadata": {}},
-            {"data": "It is a therapeutic technique used in medical applications.", "metadata": {}}
-        ]
-
-        result = augmenter.generate_response(query, chunks)
-
-        assert "LIFU" in result
-        assert "therapeutic" in result.lower()
-        mock_client.chat.completions.create.assert_called_once()
-
-
-@pytest.mark.skipif(
-    not TRANSFORMERS_AVAILABLE, reason="transformers and torch packages not available"
-    )
-def test_full_augmenter_workflow_local():
-    """Test complete augmenter workflow using local model."""
-    with patch('transformers.AutoTokenizer') as mock_tokenizer_class, \
-         patch('transformers.AutoModelForCausalLM') as mock_model_class, \
-         patch('torch.no_grad') as mock_no_grad:
-
-        # Setup mocks
-        mock_tokenizer = MagicMock()
-        mock_tokenizer.encode.return_value = MagicMock(shape=[1, 10])
-        mock_tokenizer.decode.return_value = "Formatted prompt LIFU is a therapeutic technique."
-        mock_tokenizer.eos_token_id = 2
-        mock_tokenizer_class.from_pretrained.return_value = mock_tokenizer
-
-        mock_model = MagicMock()
-        mock_outputs = MagicMock()
-        mock_outputs[0] = MagicMock()
-        mock_model.generate.return_value = mock_outputs
-        mock_model_class.from_pretrained.return_value = mock_model
-
-        mock_no_grad.return_value.__enter__ = Mock()
-        mock_no_grad.return_value.__exit__ = Mock(return_value=None)
-
-        augmenter = Augmenter(use_local=True)
-        augmenter.tokenizer = mock_tokenizer
-        augmenter.model = mock_model
-
-        query = "What is LIFU?"
-        chunks = [{"data": "LIFU is a therapeutic technique.", "metadata": {}}]
-
-        result = augmenter.generate_response(query, chunks)
-
-        assert "LIFU is a therapeutic technique" in result
-        mock_tokenizer.encode.assert_called_once()
-        mock_model.generate.assert_called_once()
-
-
-def test_augmenter_with_retriever_integration():
-    """Test augmenter integration with retriever (mocked)."""
-    with patch('huggingface_hub.InferenceClient') as mock_client_class:
-        mock_client = MagicMock()
-        mock_completion = MagicMock()
-        mock_choice = MagicMock()
-        mock_message = MagicMock()
-        mock_message.content = "Based on the context, LIFU and " + \
-        "LIPUS are related but different techniques."
-        mock_choice.message = mock_message
-        mock_completion.choices = [mock_choice]
-        mock_client.chat.completions.create.return_value = mock_completion
-        mock_client_class.return_value = mock_client
-
-        augmenter = Augmenter(api_key="test_key")
-        augmenter.client = mock_client
-
-        # Simulate retrieved chunks from retriever
-        query = "Is LIPUS the same thing as LIFU?"
-        retrieved_chunks = [
-            {
-                "data": "LIFU (Low-Intensity Focused Ultrasound) uses focused ultrasound waves.",
-                "metadata": {}
-                },
-            {
-                "data": "LIPUS (Low-Intensity Pulsed Ultrasound) uses pulsed ultrasound waves.",
-                "metadata": {}
-                },
-            {
-                "data": "Both techniques are used for therapeutic purposes " + \
-                "but have different mechanisms.",
-                "metadata": {}
-                }
-        ]
-
-        result = augmenter.generate_response_with_sources(query, retrieved_chunks)
-
-        assert result["response"] == "Based on the context, LIFU and LIPUS are " + \
-        "related but different techniques."
-        assert result["num_sources"] == 3
-        assert result["query"] == query
-        assert len(result["sources"]) == 3
-        assert result["temperature"] == 0.25
-        assert result["max_new_tokens"] == 200
-
-
-def test_augmenter_error_handling():
-    """Test augmenter error handling in full workflow."""
-    with patch('huggingface_hub.InferenceClient') as mock_client_class:
-        mock_client = MagicMock()
-        mock_client.chat.completions.create.side_effect = Exception("API rate limit exceeded")
-        mock_client_class.return_value = mock_client
-
-        augmenter = Augmenter(api_key="test_key")
-        augmenter.client = mock_client
-
-        query = "What is LIFU?"
-        chunks = [{"data": "LIFU is a therapeutic technique.", "metadata": {}}]
-
-        with pytest.raises(RuntimeError, match="Error calling Hugging Face API"):
-            augmenter.generate_response(query, chunks)
-
-
-def test_augmenter_environment_variable_handling():
-    """Test augmenter initialization with environment variables."""
-    test_env = {
-        'HUGGINGFACE_API_KEY': 'env_test_key',
-        'MODEL_NAME': 'test/model'
-    }
-
-    with patch.dict(os.environ, test_env, clear=True):
-        augmenter = Augmenter()
-        assert augmenter.api_key == 'env_test_key'
-        assert augmenter.model_name == "google/gemma-2-2b-it"  # Should use default, not env var
-
-
-def test_augmenter_custom_parameters():
-    """Test augmenter with custom model and parameters."""
-    with patch('huggingface_hub.InferenceClient') as mock_client_class:
-        mock_client = MagicMock()
-        mock_completion = MagicMock()
-        mock_choice = MagicMock()
-        mock_message = MagicMock()
-        mock_message.content = "Custom model response"
-        mock_choice.message = mock_message
-        mock_completion.choices = [mock_choice]
-        mock_client.chat.completions.create.return_value = mock_completion
-        mock_client_class.return_value = mock_client
-
-        augmenter = Augmenter(
-            model_name="custom/model",
-            api_key="custom_key",
-            use_local=False
+    assert any(
+        "Chat turn failed" in rec.message and rec.levelname == "ERROR" for rec in caplog.records
         )
-        augmenter.client = mock_client
-
-        query = "Test query"
-        chunks = [{"data": "Test chunk", "metadata": {}}]
-
-        result = augmenter.generate_response(query, chunks)
-
-        assert result == "Custom model response"
-        # Verify the custom model name was used in the API call
-        call_args = mock_client.chat.completions.create.call_args
-        assert call_args[1]['model'] == "custom/model"
-        # Verify default parameters were used
-        assert call_args[1]['temperature'] == 0.25
-        assert call_args[1]['max_tokens'] == 200
-
-def test_augmenter_integration_verbose_logging_with_context(
-    caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-    """
-    Test full flow for Augmenter.generate_response with DEBUG console logging.
-    We stub out HF client init and the actual API call so there are no external deps.
-    """
-    caplog.set_level(logging.DEBUG)
-    # Keep existing handlers; just set console to DEBUG for this test
-    RAGTBLogger.setup_logging(LoggingConfig(console_level="DEBUG", log_file=None, force=False))
-
-    # Avoid importing huggingface_hub in the test
-    monkeypatch.setattr(Augmenter, "_initialize_api_client", lambda self: None)
-
-    # Stub the actual API call to return a canned answer and ensure the log line is emitted
-    monkeypatch.setattr(Augmenter, "_call_huggingface_api", _stub_call_hf)
-
-    # Instantiate the augmenter (non-local path)
-    aug = Augmenter(
-        model_name="fake/model",
-        api_key="dummy-key",
-        use_local=False,
-        prompt_type="default",
-    )
-
-    # Run end-to-end with context
-    out = aug.generate_response(
-        "ultrasound therapy", _fake_chunks(), GenerationConfig(temperature=0.2, max_new_tokens=32)
-        )
-
-    assert out == "stubbed-answer"
-    log_text = caplog.text
-    assert "Valid response from LLM generated" in log_text
-
-
-def test_augmenter_integration_verbose_logging_no_context(
-    caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-    """
-    Same test as above but with no retrieved chunks -> should WARN and return the fallback message.
-    """
-    caplog.set_level(logging.DEBUG)
-    RAGTBLogger.setup_logging(LoggingConfig(console_level="DEBUG", log_file=None, force=False))
-
-    # Avoid HF client import/creation
-    monkeypatch.setattr(Augmenter, "_initialize_api_client", lambda self: None)
-
-    aug = Augmenter(
-        model_name="fake/model",
-        api_key="dummy-key",
-        use_local=False,
-        prompt_type="default",
-    )
-
-    out = aug.generate_response("anything", retrieved_chunks=[])
-
-    # The fallback message your code returns/logs
-    expected_msg = (
-        "I don't have enough information to answer your question. "
-        "Please try rephrasing or expanding your query."
-    )
-    assert expected_msg in out
-    assert expected_msg in caplog.text
-
-
-def test_initiate_chat(
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-    ) -> None:
-    """
-    Full test of augmenter module with --chat option and minimal mocks.
-    """
-    from types import SimpleNamespace
-
-    # Capture the actual prompt sent to the LLM
-    seen = {"prompts": []}
-
-    # Prevent HF client creation during Augmenter.__init__
-    monkeypatch.setattr(Augmenter, "_initialize_api_client", lambda self: None, raising=True)
-
-    # Stub the HF API call and capture the prompt
-    def _stub_hf(self, prompt: str, temperature: float, max_new_tokens: int) -> str:  # noqa: ARG002
-        seen["prompts"].append(prompt)
-        return "ok-from-llm"
-    monkeypatch.setattr(Augmenter, "_call_huggingface_api", _stub_hf, raising=True)
-
-    aug = Augmenter(api_key="dummy", use_local=False, prompt_type="default")
-
-    # Minimal fake retriever that returns two chunks
-    class _FakeRetriever:
-        def __init__(self):
-            self.calls = []
-        def retrieve(self, query: str, ret_config: RetrievalConfig):
-            self.calls.append((query, ret_config.top_k, ret_config.max_retries))
-            return [
-                {"data": "KB chunk A", "metadata": {"id": "A"}},
-                {"data": "KB chunk B", "metadata": {"id": "B"}},
-            ]
-    retriever = _FakeRetriever()
-
-    args = SimpleNamespace(
-        top_k=7,
-        max_retries=3,
-        temperature=0.33,
-        max_tokens=128,
-        sources=True,
-        history_turns=2
-        )
-
-    # Simulate two turns and then exit
-    inputs = iter(["hello world", "second turn", "quit"])
-    monkeypatch.setattr("builtins.input", lambda prompt="": next(inputs))
-    monkeypatch.setattr("sys.exit", lambda code=0: (_ for _ in ()).throw(SystemExit(code)))
-
-    with pytest.raises(SystemExit) as excinfo:
-        initiate_chat(augmenter_obj=aug, retriever_obj=retriever, command_args=args)
-
-    assert excinfo.value.code == 0
-
-    # Printed output checks
-    out = capsys.readouterr().out
-    assert "Chat mode: type your message." in out
-    assert "Assistant: ok-from-llm" in out
-    assert "[Sources used: 2]" in out
-    # Second turn: 1 history + 2 KB chunks -> 3 sources
-    assert "[Sources used: 3]" in out
-
-    assert retriever.calls == [
-        ("hello world", args.top_k, args.max_retries),
-        ("second turn", args.top_k, args.max_retries)
-        ]
-
-    assert seen["prompts"], "Expected at least one prompt captured"
-    prompt = seen["prompts"][-1]
-
-    assert "KB chunk A" in prompt
-    assert "KB chunk B" in prompt
-    assert "hello world" in prompt
