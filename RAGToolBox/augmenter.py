@@ -53,7 +53,9 @@ class ChatConfig:
     include_sources: bool = False
     history_turns: int = 5
 
-def _init_chat_config(history: deque[tuple[str, str]], command_args: argparse.Namespace) -> ChatConfig:
+def _init_chat_config(
+    history: deque[tuple[str, str]], command_args: argparse.Namespace
+    ) -> ChatConfig:
     """Helper function for constructing a ChatConfig"""
     ret_config = RetrievalConfig(
         top_k=command_args.top_k,
@@ -677,9 +679,9 @@ Examples:
         # Interactive rolling chat with LLM
         if args.chat:
             initiate_chat(
-                augmenter = augmenter,
-                retriever = retriever,
-                args = args
+                augmenter_obj = augmenter,
+                retriever_obj = retriever,
+                command_args = args
                 )
 
         # Retrieve context
