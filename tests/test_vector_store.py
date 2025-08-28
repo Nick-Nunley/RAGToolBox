@@ -12,7 +12,7 @@ import pytest
 import numpy as np
 from RAGToolBox.vector_store import VectorStoreFactory, SQLiteVectorStore, ChromaVectorStore
 from RAGToolBox.index import Indexer, IndexerConfig
-from RAGToolBox.retriever import Retriever
+from RAGToolBox.retriever import Retriever, RetrievalConfig
 from RAGToolBox.chunk import HierarchicalChunker, SectionAwareChunker, SlidingWindowChunker
 from RAGToolBox.logging import RAGTBLogger, LoggingConfig
 
@@ -761,7 +761,7 @@ def test_retriever_integration_with_sqlite() -> None:
         with patch.object(retriever, '_embed_query') as mock_embed:
             mock_embed.return_value = np.array([0.9, 0.1, 0.2, 0.3, 0.4])
 
-            results = retriever.retrieve("ultrasound therapy", top_k=2)
+            results = retriever.retrieve("ultrasound therapy", RetrievalConfig(top_k=2))
 
             assert len(results) == 2
             assert 'ultrasound' in results[0]['data'].lower()
@@ -806,7 +806,7 @@ def test_retriever_integration_with_chroma() -> None:
         with patch.object(retriever, '_embed_query') as mock_embed:
             mock_embed.return_value = np.array([0.8, 0.2, 0.1, 0.3, 0.4])
 
-            results = retriever.retrieve("brain imaging research", top_k=2)
+            results = retriever.retrieve("brain imaging research", RetrievalConfig(top_k=2))
 
             assert len(results) == 2
             assert 'brain' in results[0]['data'].lower()

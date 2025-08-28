@@ -12,14 +12,67 @@ import logging
 import os
 import sys
 from importlib.resources import files
-from typing import Optional, Sequence
+from typing import Deque, Tuple, Optional, Sequence
+from dataclasses import dataclass
+from collections import deque
 from pathlib import Path
 import yaml
 from RAGToolBox.types import RetrievedChunk
-from RAGToolBox.retriever import Retriever
+from RAGToolBox.retriever import Retriever, RetrievalConfig
 
-__all__ = ["Augmenter"]
+__all__ = ["Augmenter", "GenerationConfig", "ChatConfig", "initiate_chat"]
 logger = logging.getLogger(__name__)
+
+@dataclass(frozen=True)
+class GenerationConfig:
+    """
+    Holds all the optional config settings for text generation.
+
+    Attributes:
+        temperature: Controls randomness in generation (0.0 = deterministic, 1.0 = very random)
+        max_new_tokens: Maximum number of tokens to generate
+    """
+    temperature: float = 0.25
+    max_new_tokens: int = 200
+
+@dataclass(frozen=True)
+class ChatConfig:
+    """
+    Holds all the optional config settings for interactive chat.
+
+    Attributes:
+        ret_config: RetrievalConfig object for retrieving context
+        gen_config: GenerationConfig object for generating text
+        history: Deque containing chat history
+        include_sources: Bool indicating to show used sources when chatting
+        history_turns: Integer specifying how many past threads to keep in chat window
+    """
+    ret_config: Optional[RetrievalConfig] = None
+    gen_config: Optional[GenerationConfig] = None
+    history: Deque[Tuple[str, str]] | None = None
+    include_sources: bool = False
+    history_turns: int = 5
+
+def _init_chat_config(
+    history: deque[tuple[str, str]], command_args: argparse.Namespace
+    ) -> ChatConfig:
+    """Helper function for constructing a ChatConfig"""
+    ret_config = RetrievalConfig(
+        top_k=command_args.top_k,
+        max_retries=command_args.max_retries
+        )
+    gen_config = GenerationConfig(
+        temperature=command_args.temperature,
+        max_new_tokens=command_args.max_tokens
+        )
+    chat_config = ChatConfig(
+        ret_config = ret_config,
+        gen_config = gen_config,
+        history = history,
+        include_sources=command_args.sources,
+        history_turns=command_args.history_turns
+        )
+    return chat_config
 
 class Augmenter:
     """
@@ -272,7 +325,7 @@ class Augmenter:
 
     def generate_response(
         self, query: str, retrieved_chunks: Sequence[RetrievedChunk],
-        temperature: float = 0.25, max_new_tokens: int = 200
+        gen_config: GenerationConfig = None
         ) -> str:
         """
         Generate a response using the retrieved chunks as context.
@@ -280,10 +333,9 @@ class Augmenter:
         Args:
             query: The user's original query as a string
             retrieved_chunks: Sequence of retrieved text chunks from the Retriever
-            temperature:
-                A float that controls randomness in generation
-                (0.0 = deterministic, 1.0 = very random)
-            max_new_tokens: Maximum number of tokens to generate as an integer
+            gen_config:
+                The text generation configuration. If omitted, a default
+                :class:`GenerationConfig` is used.
 
         Returns:
             The generated response string from the LLM
@@ -295,7 +347,7 @@ class Augmenter:
 
         Example:
             >>> retriever = Retriever(embedding_model="fastembed")
-            >>> chunks = retriever.retrieve("What is RAG?", top_k=3)
+            >>> chunks = retriever.retrieve("What is RAG?", RetrievalConfig(top_k=3))
             >>> aug = Augmenter(model_name="google/gemma-2-2b-it")
             >>> aug.generate_response("What is RAG?", chunks)  # doctest: +SKIP
             "Retrieval-Augmented Generation (RAG) is ..."
@@ -306,15 +358,18 @@ class Augmenter:
             logger.warning("Warning: %s", invalid_resp)
             return invalid_resp
 
+        if gen_config is None:
+            gen_config = GenerationConfig()
+
         prompt = self._format_prompt(query, retrieved_chunks)
 
-        resp = self._call_llm(prompt, temperature, max_new_tokens)
+        resp = self._call_llm(prompt, gen_config.temperature, gen_config.max_new_tokens)
         logger.info("Valid response from LLM generated")
         return resp
 
     def generate_response_with_sources(
         self, query: str, retrieved_chunks: Sequence[RetrievedChunk],
-        temperature: float = 0.25, max_new_tokens: int = 200
+        gen_config: GenerationConfig = None
         ) -> dict:
         """
         Generate a response with source information.
@@ -322,10 +377,9 @@ class Augmenter:
         Args:
             query: The user's original query as a string
             retrieved_chunks: Sequence of retrieved text chunks from the Retriever
-            temperature:
-                A float that controls randomness in generation
-                (0.0 = deterministic, 1.0 = very random)
-            max_new_tokens: Maximum number of tokens to generate as an integer
+            gen_config:
+                The text generation configuration. If omitted, a default
+                :class:`GenerationConfig` is used.
 
         Returns:
             A dict as follows:
@@ -345,23 +399,136 @@ class Augmenter:
 
         Example:
             >>> retriever = Retriever(embedding_model="fastembed")
-            >>> chunks = retriever.retrieve("What is RAG?", top_k=3)
+            >>> chunks = retriever.retrieve("What is RAG?", RetrievalConfig(top_k=3))
             >>> aug = Augmenter(model_name="google/gemma-2-2b-it")
             >>> aug.generate_response("What is RAG?", chunks)  # doctest: +SKIP
             {"response": "Retrieval-Augmented Generation (RAG) is ...",
             "sources": <sources>, "num_sources": 3, "query": "What is RAG?",
             "temperature": 0.25, "max_new_tokens": 200}
         """
-        resp = self.generate_response(query, retrieved_chunks, temperature, max_new_tokens)
+        if gen_config is None:
+            gen_config = GenerationConfig()
+
+        resp = self.generate_response(query, retrieved_chunks, gen_config)
 
         return {
             "response": resp,
             "sources": retrieved_chunks,
             "num_sources": len(retrieved_chunks),
             "query": query,
-            "temperature": temperature,
-            "max_new_tokens": max_new_tokens
+            "temperature": gen_config.temperature,
+            "max_new_tokens": gen_config.max_new_tokens
         }
+
+    def _make_history_chunk(self, history: Deque[Tuple[str, str]]) -> RetrievedChunk:
+        """
+        Turn the rolling (user, assistant) history into a synthetic context chunk
+        that fits your existing prompt formatting.
+        """
+        if not history:
+            return {"data": "", "metadata": {"type": "history"}}
+        lines = []
+        for u, a in history:
+            lines.append(f"User: {u}")
+            lines.append(f"Assistant: {a}")
+        text = "Conversation so far:\n" + "\n".join(lines)
+        return {"data": text, "metadata": {"type": "history"}}
+
+    def _process_query_once(
+        self,
+        query: str,
+        retriever_obj: Retriever,
+        chat_config: ChatConfig
+        ) -> dict:
+        """
+        Single-turn processing:
+        - build a synthetic 'history' chunk (last N turns),
+        - retrieve KB chunks for the new user query,
+        - call the augmenter,
+        - return a dict with message + (optional) sources.
+        """
+        # Retrieve fresh context for this turn
+        retrieved = retriever_obj.retrieve(query=query, ret_config=chat_config.ret_config)
+
+        # Optionally include rolling chat history as a synthetic "context" chunk
+        extra_chunks: list[RetrievedChunk] = []
+        if chat_config.history and len(chat_config.history) > 0:
+            # Only include the most recent N turns
+            recent = deque(
+                list(chat_config.history)[-chat_config.history_turns:],
+                maxlen=chat_config.history_turns
+                )
+            hist_chunk = self._make_history_chunk(recent)
+            if hist_chunk["data"]:
+                extra_chunks.append(hist_chunk)
+
+        # Combine history chunk (if any) + retrieved chunks
+        all_context: list[RetrievedChunk] = [*extra_chunks, *retrieved]
+
+        if chat_config.include_sources:
+            out = self.generate_response_with_sources(
+                query=query,
+                retrieved_chunks=all_context,
+                gen_config=chat_config.gen_config
+                )
+            return out
+
+        msg = self.generate_response(
+            query=query,
+            retrieved_chunks=all_context,
+            gen_config=chat_config.gen_config
+            )
+        return {"response": msg, "sources": retrieved, "num_sources": len(retrieved)}
+
+def initiate_chat(
+    augmenter_obj: Augmenter, retriever_obj: Retriever, command_args: argparse.Namespace
+    ) -> None:
+    """
+    Function to initiate a rolling chat with LLM.
+
+    Args:
+        retriever_obj: A Retriever instance for fetching context chunks.
+        augmenter_obj: An Augmenter instance for generating responses.
+        command_args: Parsed CLI arguments (argparse.Namespace) with attributes:
+            - top_k (int)
+            - max_retries (int)
+            - temperature (float)
+            - max_tokens (int)
+            - sources (bool)
+            - history_turns (int)
+    """
+    print("Chat mode: type your message. Type 'quit' or 'exit' to leave.")
+    history: deque[tuple[str, str]] = deque(maxlen=50)
+
+    while True:
+        try:
+            user_msg = input("\nYou: ").strip()
+            if user_msg.lower() in {"quit", "exit"}:
+                break
+            # process one turn
+            result = augmenter_obj._process_query_once( # pylint: disable=protected-access
+                query=user_msg,
+                retriever_obj=retriever_obj,
+                chat_config = _init_chat_config(
+                    history=history,
+                    command_args=command_args
+                    )
+                )
+            assistant_msg = result["response"]
+            print(f"\nAssistant: {assistant_msg}")
+
+            if command_args.sources:
+                print(f"\n[Sources used: "
+                f"{result.get('num_sources', len(result.get('sources', [])))}]")
+            history.append((user_msg, assistant_msg))
+
+        except KeyboardInterrupt:
+            print("\nInterrupted. Exiting chat.")
+            break
+        except Exception as e:  # pylint: disable=broad-exception-caught
+            logger.exception("Chat turn failed")
+            print(f"Error: {str(e)}")
+    sys.exit(0)
 
 if __name__ == "__main__":
 
@@ -379,12 +546,20 @@ Examples:
         """
     )
 
-    # Required arguments
-    parser.add_argument(
-        "query",
-        type=str,
-        help="The query/question to answer"
-    )
+    group = parser.add_mutually_exclusive_group(required=True)
+
+    group.add_argument(
+        'query',
+        nargs = '?',
+        type = str,
+        help = "The query/question to answer"
+        )
+
+    group.add_argument(
+        '--chat',
+        action = 'store_true',
+        help = 'Start an interactive chat loop (retrieval + augmentation per turn).'
+        )
 
     # Optional arguments with defaults
     parser.add_argument(
@@ -463,6 +638,13 @@ Examples:
         help = 'Maximum retry attempts when calling the remote embedding model'
         )
 
+    parser.add_argument(
+        '--history-turns',
+        type = int,
+        default = 5,
+        help = 'How many past turns to include in the synthetic history context.'
+        )
+
     RAGTBLogger.add_logging_args(parser=parser)
 
     # Parse arguments
@@ -494,12 +676,20 @@ Examples:
             prompt_type=args.prompt_type
         )
 
+        # Interactive rolling chat with LLM
+        if args.chat:
+            initiate_chat(
+                augmenter_obj = augmenter,
+                retriever_obj = retriever,
+                command_args = args
+                )
+
         # Retrieve context
         logger.info(
             "Retrieving context for query: %r (top_k=%d, max_retries=%d)",
             args.query, args.top_k, args.max_retries
             )
-        context = retriever.retrieve(args.query, args.top_k, args.max_retries)
+        context = retriever.retrieve(args.query, RetrievalConfig(args.top_k, args.max_retries))
 
         if not context:
             logger.warning("Warning: No relevant context found for the query.")
@@ -513,15 +703,19 @@ Examples:
             response = augmenter.generate_response_with_sources(
                 args.query,
                 context,
-                temperature=args.temperature,
-                max_new_tokens=args.max_tokens
+                gen_config = GenerationConfig(
+                    temperature=args.temperature,
+                    max_new_tokens=args.max_tokens
+                    )
                 )
         else:
             response = augmenter.generate_response(
                 args.query,
                 context,
-                temperature=args.temperature,
-                max_new_tokens=args.max_tokens
+                gen_config = GenerationConfig(
+                    temperature=args.temperature,
+                    max_new_tokens=args.max_tokens
+                    )
                 )
 
         # Print results

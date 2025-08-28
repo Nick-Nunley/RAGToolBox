@@ -11,14 +11,28 @@ A small CLI is also provided when running the module as ``python -m RAGToolBox.r
 import argparse
 import logging
 from typing import List, Optional
+from dataclasses import dataclass
 from pathlib import Path
 import numpy as np
 from RAGToolBox.types import RetrievedChunk
 from RAGToolBox.embeddings import Embeddings
 from RAGToolBox.vector_store import VectorStoreFactory
 
-__all__ = ['Retriever']
+__all__ = ['Retriever', 'RetrievalConfig']
 logger = logging.getLogger(__name__)
+
+@dataclass(frozen=True)
+class RetrievalConfig:
+    """
+    Holds all the optional config settings for retrieval.
+
+    Attributes:
+        top_k: Number of chunks to be retrieved for context
+        max_retries: Maximum retry attempts for rate-limited remote backends during
+            query embedding
+    """
+    top_k: int = 5
+    max_retries: int = 5
 
 class Retriever:
     """
@@ -99,7 +113,7 @@ class Retriever:
         logger.debug("Query embedding length=%d", len(vec))
         return vec
 
-    def retrieve(self, query: str, top_k: int = 10, max_retries: int = 5) -> List[RetrievedChunk]:
+    def retrieve(self, query: str, ret_config: RetrievalConfig = None) -> List[RetrievedChunk]:
         """
         Return the top-``k`` most similar chunks to ``query``.
 
@@ -114,11 +128,9 @@ class Retriever:
         Args:
             query:
                 The natural-language query
-            top_k:
-                Maximum number of results to return
-            max_retries:
-                Maximum retry attempts for rate-limited remote backends during
-                query embedding
+            ret_config:
+                The retrieval configuration. If omitted, a default
+                :class:`RetrievalConfig` is used.
 
         Returns:
             A list of :class:`RetrievedChunk` dictionaries (length ``<= top_k``),
@@ -131,8 +143,11 @@ class Retriever:
                 If embedding the query fails after retries
         """
 
-        logger.info("Retrieve called: top_k=%d", top_k)
-        query_embedding = self._embed_query(query=query, max_retries=max_retries)
+        if ret_config is None:
+            ret_config = RetrievalConfig()
+
+        logger.info("Retrieve called: top_k=%d", ret_config.top_k)
+        query_embedding = self._embed_query(query=query, max_retries=ret_config.max_retries)
 
         embeddings_data = self.vector_store.get_all_embeddings()
         n = len(embeddings_data)
@@ -148,8 +163,8 @@ class Retriever:
             similarities.append((similarity, item['chunk'], item['metadata']))
 
         similarities.sort(key=lambda x: x[0], reverse=True)
-        results = [{'data': c, 'metadata': m} for _, c, m in similarities[:top_k]]
-        logger.info("Retrieved %d results (requested top_k=%d)", len(results), top_k)
+        results = [{'data': c, 'metadata': m} for _, c, m in similarities[:ret_config.top_k]]
+        logger.info("Retrieved %d results (requested top_k=%d)", len(results), ret_config.top_k)
 
         if logger.isEnabledFor(logging.DEBUG) and results:
             logger.debug("Top similarity=%.4f preview=%r",
@@ -214,4 +229,10 @@ if __name__ == "__main__":
         db_path = args.db_path
         )
 
-    context = retriever.retrieve(args.query, args.top_k, args.max_retries)
+    context = retriever.retrieve(
+        args.query,
+        ret_config = RetrievalConfig(
+            top_k = args.top_k,
+            max_retries = args.max_retries
+            )
+        )

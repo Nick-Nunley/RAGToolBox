@@ -12,7 +12,7 @@ from unittest.mock import Mock, patch
 import pytest
 import numpy as np
 from RAGToolBox.vector_store import SQLiteVectorStore
-from RAGToolBox.retriever import Retriever
+from RAGToolBox.retriever import Retriever, RetrievalConfig
 from RAGToolBox.logging import LoggingConfig, RAGTBLogger
 
 @pytest.fixture(autouse=True)
@@ -298,7 +298,7 @@ def test_retrieve_method_full_workflow() -> None:
             retriever = Retriever(embedding_model='fastembed', db_path=Path(db_path))
 
             # Test retrieval with top_k=3
-            results = retriever.retrieve('biomedical ultrasound research', top_k=3)
+            results = retriever.retrieve('biomedical ultrasound research', RetrievalConfig(top_k=3))
 
             # Verify the method was called correctly
             mock_embed.assert_called_once_with(
@@ -374,8 +374,8 @@ def test_retrieve_method_top_k_parameter() -> None:
             retriever = Retriever(embedding_model='fastembed', db_path=Path(db_path))
 
             # Test with different top_k values
-            results_k2 = retriever.retrieve('test query', top_k=2)
-            results_k4 = retriever.retrieve('test query', top_k=4)
+            results_k2 = retriever.retrieve('test query', RetrievalConfig(top_k=2))
+            results_k4 = retriever.retrieve('test query', RetrievalConfig(top_k=4))
 
             assert len(results_k2) == 2
             assert len(results_k4) == 4
@@ -524,7 +524,7 @@ def test_retriever_full_integration() -> None: # pylint: disable=too-many-locals
 
         # Test retrieval with a query related to ultrasound
         query = "ultrasound therapy brain stimulation"
-        results = retriever.retrieve(query, top_k=3)
+        results = retriever.retrieve(query, RetrievalConfig(top_k=3))
 
         # Verify we got results
         assert len(results) == 3
@@ -536,14 +536,14 @@ def test_retriever_full_integration() -> None: # pylint: disable=too-many-locals
 
         # Test with a different query
         query2 = "medical device safety"
-        results2 = retriever.retrieve(query2, top_k=2)
+        results2 = retriever.retrieve(query2, RetrievalConfig(top_k=2))
 
         assert len(results2) == 2
         # Should include the medical device regulation chunk
         assert any('regulation' in result['data'].lower() for result in results2)
 
         # Test with top_k larger than available data
-        results3 = retriever.retrieve("biomedical research", top_k=10)
+        results3 = retriever.retrieve("biomedical research", RetrievalConfig(top_k=10))
         assert len(results3) == 5  # Should return all available chunks
 
     finally:
@@ -574,7 +574,7 @@ def test_retriever_integration_verbose_logging(caplog: pytest.LogCaptureFixture)
 
         # Run retrieval end-to-end
         retriever = Retriever(embedding_model="fastembed", db_path=Path(db_path))
-        results = retriever.retrieve("ultrasound therapy", top_k=2)
+        results = retriever.retrieve("ultrasound therapy", RetrievalConfig(top_k=2))
 
         # Sanity checks
         assert isinstance(results, list)
@@ -616,7 +616,7 @@ def test_retriever_integration_verbose_logging_to_file(
         db_path = _make_fastembed_db(rows_text)
 
         retriever = Retriever(embedding_model="fastembed", db_path=Path(db_path))
-        _ = retriever.retrieve("brain imaging", top_k=2)
+        _ = retriever.retrieve("brain imaging", RetrievalConfig(top_k=2))
 
         # File should exist and contain DEBUG/INFO lines
         assert log_file.exists()
