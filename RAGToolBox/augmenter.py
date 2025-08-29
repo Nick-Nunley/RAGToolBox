@@ -1,10 +1,16 @@
 """
-RAGToolBox Augmenter module.
+RAGToolBox augmenter module.
 
-Provides the Augmenter class for generating responses using retrieved
-chunks from the KB and a language model (local or via Hugging Face API).
+Provides utilities to format prompts and generate answers using either a local
+Transformers model or the Hugging Face Inference API. Supports "rolling chat"
+by threading prior turns as read-only disambiguation context.
 
-Additionally, this script provides a CLI entry point for execution as a standalone python module.
+Environment:
+    HUGGINGFACE_API_KEY: Token used when calling the Hugging Face Inference API
+
+See Also:
+    - :py:class:`RAGToolBox.retriever.Retriever`
+    - :py:class:`RAGToolBox.embeddings.Embeddings`
 """
 
 import argparse
@@ -26,11 +32,18 @@ logger = logging.getLogger(__name__)
 @dataclass(frozen=True)
 class GenerationConfig:
     """
-    Holds all the optional config settings for text generation.
+    Configuration for text generation.
 
     Attributes:
-        temperature: Controls randomness in generation (0.0 = deterministic, 1.0 = very random)
-        max_new_tokens: Maximum number of tokens to generate
+        temperature: Controls randomness in generation
+            (0.0 = deterministic, 1.0 = very random). Default: 0.25.
+        max_new_tokens: Maximum number of new tokens to generate. Default: 200.
+
+    Examples:
+        >>> GenerationConfig()  # defaults
+        GenerationConfig(temperature=0.25, max_new_tokens=200)
+        >>> GenerationConfig(temperature=0.1, max_new_tokens=128)
+        GenerationConfig(temperature=0.1, max_new_tokens=128)
     """
     temperature: float = 0.25
     max_new_tokens: int = 200
@@ -38,14 +51,24 @@ class GenerationConfig:
 @dataclass(frozen=True)
 class ChatConfig:
     """
-    Holds all the optional config settings for interactive chat.
+    Configuration for interactive chat turns.
 
     Attributes:
-        ret_config: RetrievalConfig object for retrieving context
-        gen_config: GenerationConfig object for generating text
-        history: Deque containing chat history
-        include_sources: Bool indicating to show used sources when chatting
-        history_turns: Integer specifying how many past threads to keep in chat window
+        ret_config: :py:class:`RAGToolBox.retriever.RetrievalConfig` for retrieval.
+        gen_config: :py:class:`GenerationConfig` for generation.
+        history: Rolling deque of prior (user, assistant) turns.
+        include_sources: If True, return KB sources alongside the answer.
+        history_turns: How many most-recent turns to expose for disambiguation.
+
+    Notes:
+        Chat history is treated as *reference only* for resolving pronouns or
+        vague language in the current query. It is not treated as ground-truth
+        evidence.
+
+    Examples:
+        >>> from collections import deque
+        >>> ChatConfig(history=deque(maxlen=50), include_sources=True, history_turns=3)
+        ChatConfig(...)
     """
     ret_config: Optional[RetrievalConfig] = None
     gen_config: Optional[GenerationConfig] = None
@@ -76,16 +99,23 @@ def _init_chat_config(
 
 class Augmenter:
     """
-    Augmenter class for generating responses using retrieved chunks and a LLM.
+    Generate answers from retrieved KB chunks and an LLM.
 
-    The augmenter formats a prompt from `query` and `retrieved_chunks`, then
-    calls either a local transformers model or the Hugging Face Inference API.
+    The augmenter formats a prompt from the user's query, retrieved KB chunks
+    (treated as ground-truth evidence), and optional chat history
+    (disambiguation only). It then calls either a local Transformers model
+    or the Hugging Face Inference API.
 
     Attributes:
-        model_name: Identifier for the model to use.
-        api_key: HF token (if using the Hugging Face Inference API).
-        use_local: If True, use a local transformers pipeline.
-        prompt_type: The selected prompt template content read from `config/prompts.yaml`.
+        model_name: Identifier of the LLM to use
+        api_key: HF token used with the Inference API (if applicable)
+        use_local: If True, use a local Transformers model; otherwise use HF API
+        prompt_type: Name of the selected template in ``config/prompts.yaml``
+
+    Raises:
+        ValueError: If ``prompt_type`` is not a key in ``config/prompts.yaml``
+        ImportError: If required packages are missing for the chosen backend
+        RuntimeError: If client/model initialization fails
     """
 
     def __init__(
@@ -93,12 +123,23 @@ class Augmenter:
         use_local: bool = False, prompt_type: str = 'default'
         ):
         """
-        Initialize the Augmenter.
+        Initialize an :py:class:`Augmenter`.
 
         Args:
-            model_name: Name of the model to use (default: google/gemma-2-2b-it)
-            api_key: API key for Hugging Face (defaults to HUGGINGFACE_API_KEY env var)
-            use_local: Whether to use local model (True) or Hugging Face API (False)
+            model_name: LLM identifier (e.g., "google/gemma-2-2b-it")
+            api_key: Optional HF token. Defaults to env var ``HUGGINGFACE_API_KEY``
+            use_local: If True, use a local Transformers model; otherwise use HF API
+            prompt_type: Name of the prompt template from ``config/prompts.yaml``
+
+        Raises:
+            ValueError: If ``prompt_type`` is not defined in the prompts file
+            ImportError: If the selected backend requires a missing package
+            RuntimeError: If the backend client/model fails to initialize
+
+        Examples:
+            >>> aug = Augmenter()  # uses HF API with default template, token from env
+            >>> aug = Augmenter(use_local=True)  # local route that requires transformers
+            >>> aug = Augmenter(model_name="custom/model", prompt_type="verbose")
         """
         self.model_name = model_name
         self.api_key = api_key or os.getenv("HUGGINGFACE_API_KEY")
@@ -174,21 +215,31 @@ class Augmenter:
             logger.error(err, exc_info=True)
             raise RuntimeError(err) from e
 
-    def _format_prompt(self, query: str, retrieved_chunks: Sequence[RetrievedChunk]) -> str:
+    def _format_prompt(
+        self, query: str, retrieved_chunks: Sequence[RetrievedChunk],
+        chat_history: Optional[str] = None
+        ) -> str:
         """
         Format the query and retrieved chunks into a prompt for the LLM.
 
         Args:
             query: The user's original query
             retrieved_chunks: Sequence of retrieved text chunks
+            chat_history: An optional string containing chat history for when using `--chat`
 
         Returns:
             Formatted prompt string
         """
+        if chat_history is None:
+            chat_history = ''
         contx = "\n\n".join(
             f"Context {i+1}: {chunk['data']}" for i, chunk in enumerate(retrieved_chunks)
             )
-        prompt = self.prompt_type.format(context = contx, query = query)
+        prompt = self.prompt_type.format(
+            context = contx,
+            chat_history = chat_history,
+            query = query
+            )
         return prompt
 
     def _call_llm(self, prompt: str, temperature: float = 0.25, max_new_tokens: int = 200) -> str:
@@ -325,7 +376,7 @@ class Augmenter:
 
     def generate_response(
         self, query: str, retrieved_chunks: Sequence[RetrievedChunk],
-        gen_config: GenerationConfig = None
+        gen_config: Optional[GenerationConfig] = None, chat_history: Optional[str] = None
         ) -> str:
         """
         Generate a response using the retrieved chunks as context.
@@ -336,6 +387,7 @@ class Augmenter:
             gen_config:
                 The text generation configuration. If omitted, a default
                 :class:`GenerationConfig` is used.
+            chat_history: An optional chat history for subsequent interactions with the LLM
 
         Returns:
             The generated response string from the LLM
@@ -361,7 +413,7 @@ class Augmenter:
         if gen_config is None:
             gen_config = GenerationConfig()
 
-        prompt = self._format_prompt(query, retrieved_chunks)
+        prompt = self._format_prompt(query, retrieved_chunks, chat_history)
 
         resp = self._call_llm(prompt, gen_config.temperature, gen_config.max_new_tokens)
         logger.info("Valid response from LLM generated")
@@ -369,7 +421,7 @@ class Augmenter:
 
     def generate_response_with_sources(
         self, query: str, retrieved_chunks: Sequence[RetrievedChunk],
-        gen_config: GenerationConfig = None
+        gen_config: Optional[GenerationConfig] = None, chat_history: Optional[str] = None
         ) -> dict:
         """
         Generate a response with source information.
@@ -380,6 +432,7 @@ class Augmenter:
             gen_config:
                 The text generation configuration. If omitted, a default
                 :class:`GenerationConfig` is used.
+            chat_history: An optional chat history for subsequent interactions with the LLM
 
         Returns:
             A dict as follows:
@@ -409,7 +462,7 @@ class Augmenter:
         if gen_config is None:
             gen_config = GenerationConfig()
 
-        resp = self.generate_response(query, retrieved_chunks, gen_config)
+        resp = self.generate_response(query, retrieved_chunks, gen_config, chat_history)
 
         return {
             "response": resp,
@@ -420,19 +473,21 @@ class Augmenter:
             "max_new_tokens": gen_config.max_new_tokens
         }
 
-    def _make_history_chunk(self, history: Deque[Tuple[str, str]]) -> RetrievedChunk:
+    def _update_history(
+        self, history: Optional[Deque[Tuple[str, str]]],  max_chars: int = 2000
+        ) -> Optional[str]:
         """
         Turn the rolling (user, assistant) history into a synthetic context chunk
         that fits your existing prompt formatting.
         """
         if not history:
-            return {"data": "", "metadata": {"type": "history"}}
+            return None
         lines = []
         for u, a in history:
             lines.append(f"User: {u}")
             lines.append(f"Assistant: {a}")
-        text = "Conversation so far:\n" + "\n".join(lines)
-        return {"data": text, "metadata": {"type": "history"}}
+        text = "Conversation so far (for disambiguation only):\n" + "\n".join(lines)
+        return text[:max_chars]
 
     def _process_query_once(
         self,
@@ -447,36 +502,35 @@ class Augmenter:
         - call the augmenter,
         - return a dict with message + (optional) sources.
         """
-        # Retrieve fresh context for this turn
+        # Retrieve fresh context for this turn, will want to make this conditional as
+        # subsequent user queries become vague, this will cause fresh context to be
+        # less useful than past context
         retrieved = retriever_obj.retrieve(query=query, ret_config=chat_config.ret_config)
 
-        # Optionally include rolling chat history as a synthetic "context" chunk
-        extra_chunks: list[RetrievedChunk] = []
         if chat_config.history and len(chat_config.history) > 0:
             # Only include the most recent N turns
             recent = deque(
                 list(chat_config.history)[-chat_config.history_turns:],
                 maxlen=chat_config.history_turns
                 )
-            hist_chunk = self._make_history_chunk(recent)
-            if hist_chunk["data"]:
-                extra_chunks.append(hist_chunk)
-
-        # Combine history chunk (if any) + retrieved chunks
-        all_context: list[RetrievedChunk] = [*extra_chunks, *retrieved]
+        else:
+            recent = None
+        hist = self._update_history(recent)
 
         if chat_config.include_sources:
             out = self.generate_response_with_sources(
                 query=query,
-                retrieved_chunks=all_context,
-                gen_config=chat_config.gen_config
+                retrieved_chunks=retrieved,
+                gen_config=chat_config.gen_config,
+                chat_history=hist
                 )
             return out
 
         msg = self.generate_response(
             query=query,
-            retrieved_chunks=all_context,
-            gen_config=chat_config.gen_config
+            retrieved_chunks=retrieved,
+            gen_config=chat_config.gen_config,
+            chat_history=hist
             )
         return {"response": msg, "sources": retrieved, "num_sources": len(retrieved)}
 
@@ -484,18 +538,49 @@ def initiate_chat(
     augmenter_obj: Augmenter, retriever_obj: Retriever, command_args: argparse.Namespace
     ) -> None:
     """
-    Function to initiate a rolling chat with LLM.
+    Start an interactive "rolling chat" loop (retrieve + augment per turn).
+
+    The function reads user input from stdin, retrieves fresh KB context for
+    each turn, formats a prompt that includes the last N prior turns as
+    read-only disambiguation, prints the assistant reply, and continues until
+    the user types ``quit`` or ``exit`` (or presses Ctrl+C). On termination,
+    it exits the process with code 0.
 
     Args:
-        retriever_obj: A Retriever instance for fetching context chunks.
-        augmenter_obj: An Augmenter instance for generating responses.
-        command_args: Parsed CLI arguments (argparse.Namespace) with attributes:
-            - top_k (int)
-            - max_retries (int)
-            - temperature (float)
-            - max_tokens (int)
-            - sources (bool)
-            - history_turns (int)
+        augmenter_obj: An initialized :py:class:`Augmenter`.
+        retriever_obj: An initialized :py:class:`RAGToolBox.retriever.Retriever`.
+        command_args: Parsed CLI args (argparse.Namespace) containing:
+            - ``top_k`` (int)
+            - ``max_retries`` (int)
+            - ``temperature`` (float)
+            - ``max_tokens`` (int)
+            - ``sources`` (bool)
+            - ``history_turns`` (int)
+
+    Returns:
+        None. Prints responses to stdout and calls ``sys.exit(0)`` when finished.
+
+    Raises:
+        SystemExit: Always, with code 0 on normal termination.
+        Exception: Any unexpected error that occurs during a turn is logged and
+            surfaced to the console, then the loop continues until exit.
+
+    Examples:
+        Programmatic:
+            >>> from types import SimpleNamespace
+            >>> args = SimpleNamespace(
+            ...     top_k=5, max_retries=3, temperature=0.25, max_tokens=200,
+            ...     sources=False, history_turns=3, prompt_type='default'
+            ... )
+            >>> # augmenter = Augmenter()
+            >>> # retriever = Retriever(embedding_model="fastembed")
+            >>> # initiate_chat(augmenter, retriever, args)  # doctest: +SKIP
+
+        CLI:
+            $ python -m RAGToolBox.augmenter --chat \\
+                --embedding-model fastembed \\
+                --db-path assets/kb/embeddings/embeddings.db \\
+                --model-name google/gemma-2-2b-it
     """
     print("Chat mode: type your message. Type 'quit' or 'exit' to leave.")
     history: deque[tuple[str, str]] = deque(maxlen=50)
@@ -515,11 +600,13 @@ def initiate_chat(
                     )
                 )
             assistant_msg = result["response"]
+            logger.debug('Q: %s. A: %s', user_msg, result['response'])
             print(f"\nAssistant: {assistant_msg}")
 
             if command_args.sources:
                 print(f"\n[Sources used: "
                 f"{result.get('num_sources', len(result.get('sources', [])))}]")
+                print(f"\nSources: {result.get('sources')}")
             history.append((user_msg, assistant_msg))
 
         except KeyboardInterrupt:

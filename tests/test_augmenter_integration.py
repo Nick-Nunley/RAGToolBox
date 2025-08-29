@@ -303,8 +303,6 @@ def test_initiate_chat(
     assert "Chat mode: type your message." in out
     assert "Assistant: ok-from-llm" in out
     assert "[Sources used: 2]" in out
-    # Second turn: 1 history + 2 KB chunks -> 3 sources
-    assert "[Sources used: 3]" in out
 
     assert retriever.calls == [
         ("hello world", args.top_k, args.max_retries),
