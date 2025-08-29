@@ -29,7 +29,6 @@ from bs4 import BeautifulSoup
 from bs4.element import NavigableString
 import html2text
 import pdfplumber
-from Bio import Entrez
 from RAGToolBox.logging import RAGTBLogger
 
 __all__ = ['BaseLoader', 'NCBILoader', 'HTMLLoader', 'PDFLoader', 'TextLoader', 'UnknownLoader']
@@ -252,7 +251,9 @@ class NCBILoader(BaseLoader):
     _used_pdf: bool
     article_data: Optional[Dict[str, Any]]
 
-    def __init__(self, source: str, output_dir: str) -> None:
+    def __init__(
+        self, source: str, output_dir: str, *, email: Optional[str] = None, timeout: float = 30.0
+        ) -> None:
         """
         Initializes an instance of NCBILoader.
 
@@ -262,11 +263,26 @@ class NCBILoader(BaseLoader):
             _used_pdf: Whether a PMC PDF was downloaded and used as the primary source
             _supported_sources: List of strings to validate ``source_type`` args against
         """
-        super().__init__(source, output_dir)
+        super().__init__(source, output_dir, timeout=timeout)
         self.pmc_id = os.path.basename(urlparse(self.source).path.rstrip('/'))
         self._used_pdf = False
         self.article_data = None
         self._supported_sources = ['PMC', 'PubMed']
+        self.email = email or os.getenv('NCBI_EMAIL')
+
+    @staticmethod
+    def _require_biopython() -> "Entrez":  # type: ignore[name-defined]
+        """"Helper method to lazy import Entrez module from biopython"""
+        try:
+            from Bio import Entrez
+            return Entrez
+        except ImportError as e:
+            msg = (
+                "Biopython is required for NCBILoader. "
+                "Install the optional extra: pip install 'ragtoolbox[ncbi]'"
+            )
+            logger.error(msg, exc_info=True)
+            raise ImportError(msg) from e
 
     def _get_ncbi_db_from_url(self) -> str:
         """Helper method for determining which NCBI source to use"""
@@ -293,12 +309,23 @@ class NCBILoader(BaseLoader):
         Raises:
             RuntimeError: If the Entrez fetch fails
         """
+        entrez = self._require_biopython()
+        if self.email:
+            entrez.email = self.email
+        else:
+            # Warn only if Entrez has no email set already
+            if not getattr(entrez, "email", None):
+                logger.warning(
+                    "Warning: No email provided for NCBI E-utilities; they may block requests. "
+                    "Pass --email or set NCBI_EMAIL."
+                    )
+
         pmc_id = os.path.basename(urlparse(self.source).path.rstrip('/'))
         db = self._get_ncbi_db_from_url()
         tried: List[str] = []
         # Fetch XML from the correct db
         try:
-            handle = Entrez.efetch(
+            handle = entrez.efetch(
                 db=db,
                 id=pmc_id,
                 rettype="full" if db == "pmc" else "xml",
@@ -560,7 +587,7 @@ class NCBILoader(BaseLoader):
                 )
         # References
         article_data['references'] = "\n".join(
-            self._obtain_keywords(root=root, source_type='PMC')
+            self._obtain_references(root=root, source_type='PMC')
             )
         return article_data
 
@@ -749,17 +776,12 @@ class HTMLLoader(BaseLoader):
         title, summary_html = self._convert_helper(self.raw_content)
         soup = BeautifulSoup(summary_html, "html.parser")
 
-        # Build markdown content
         md_lines = []
 
-        # Metadata block
         md_lines.append(f"# {title}\n")
         md_lines.append(f"**Source:** {self.source}")
         md_lines.append("---\n")
 
-        # Convert HTML structure to markdown
-
-        # Process the main content
         if soup.body:
             children = soup.body.children
         else:
@@ -794,15 +816,13 @@ class HTMLLoader(BaseLoader):
 
     def _extract_title(self, html: bytes) -> str:
         soup = BeautifulSoup(html, "html.parser")
-        # 1) try citation_title
         meta = soup.find("meta", {"name": "citation_title"})
         if meta and hasattr(meta, 'get') and meta.get("content"):  # type: ignore
             return meta["content"]  # type: ignore
-        # 2) try OpenGraph
         og = soup.find("meta", {"property": "og:title"})
         if og and hasattr(og, 'get') and og.get("content"):  # type: ignore
             return og["content"]  # type: ignore
-        # 3) fallback to <title>
+        # Fallback to <title>
         if soup.title and soup.title.string:
             return soup.title.string
         return ""
@@ -921,7 +941,7 @@ if __name__ == '__main__':
     parser.add_argument(
         '--use-readability',
         action='store_true',
-        help='If set, HTMLRetriever will fall back to Readability when the extracted text is short'
+        help='If set, HTMLLoader will fall back to Readability when the extracted text is short'
     )
     parser.add_argument(
         '--timeout',
@@ -933,15 +953,6 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     RAGTBLogger.configure_logging_from_args(args=args)
-
-    # Set Entrez email if provided
-    if args.email:
-        Entrez.email = args.email
-    else:
-        if not Entrez.email:
-            logger.warning(
-                "Warning: No email provided for NCBI E-utilities; they may block requests."
-                )
 
     for raw_source in args.sources:
         try:
@@ -968,6 +979,13 @@ if __name__ == '__main__':
                 output_dir = args.output_dir,
                 timeout=args.timeout,
                 use_readability = args.use_readability
+                )
+        elif LoaderClass is NCBILoader:
+            loader = LoaderClass(
+                source = raw_source,
+                output_dir = args.output_dir,
+                timeout = args.timeout,
+                email = args.email
                 )
         else:
             loader = LoaderClass(
