@@ -200,7 +200,7 @@ Continuous integration is configured *via* GitHub Actions (see `.github/workflow
 3. Commit changes: `git commit -m "Add new feature"`
 4. Push to your fork and open a PR
 
-Please follow the [Code of Conduct](CODE_OF_CONDUCT.md) and [Contributing Guidelines](CONTRIBUTING.md).
+Please follow the [Contributing Guidelines](CONTRIBUTING.md).
 
 ---
 
