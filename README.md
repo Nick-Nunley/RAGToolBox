@@ -55,7 +55,7 @@ pip install .
     * pdfplumber
     * html2text
     * pytest
-    * bs4
+    * beautifulsoup4
     * readability-lxml
     * nltk
     * fastembed
