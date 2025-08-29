@@ -224,7 +224,7 @@ def test_format_prompt_empty_chunks():
 
     prompt = augmenter._format_prompt(query, chunks)
 
-    assert "Context:" in prompt
+    assert "Context (ground-truth evidence):" in prompt
     assert "Question: What is LIFU?" in prompt
     assert "Answer:" in prompt
 
@@ -381,7 +381,7 @@ def test_generate_response_with_chunks():
         result = augmenter.generate_response(query, chunks)
 
         assert result == "Generated answer"
-        mock_format.assert_called_once_with(query, chunks)
+        mock_format.assert_called_once_with(query, chunks, None) # No history
         mock_call.assert_called_once_with("Formatted prompt", 0.25, 200)
 
 
@@ -412,11 +412,11 @@ def test_generate_response_with_sources():
             "max_new_tokens": 200
         }
         assert result == expected
-        mock_generate.assert_called_once_with(query, chunks, GenerationConfig(0.25, 200))
+        mock_generate.assert_called_once_with(query, chunks, GenerationConfig(0.25, 200), None)
 
 
-def test_make_history_chunk() -> None:
-    """Test that _make_history_chunk method returns a chat history chunk"""
+def test_update_history() -> None:
+    """Test that _update_history method returns a chat history chunk"""
     from collections import deque
 
     aug = Augmenter.__new__(Augmenter)
@@ -429,21 +429,19 @@ def test_make_history_chunk() -> None:
         ],
         maxlen=50,
     )
-    chunk = aug._make_history_chunk(history)
+    history = aug._update_history(history)
 
-    assert isinstance(chunk, dict)
-    assert chunk["metadata"]["type"] == "history"
-    assert "Conversation so far:" in chunk["data"]
-    assert "User: Hi" in chunk["data"]
-    assert "Assistant: Hello!" in chunk["data"]
-    assert "User: What is RAG?" in chunk["data"]
-    assert "Assistant: RAG is Retrieval-Augmented Generation." in chunk["data"]
+    assert isinstance(history, str)
+    assert "Conversation so far (for disambiguation only):" in history
+    assert "User: Hi" in history
+    assert "Assistant: Hello!" in history
+    assert "User: What is RAG?" in history
+    assert "Assistant: RAG is Retrieval-Augmented Generation." in history
 
-    # Empty history falls back to empty data but keeps history metadata
-    empty = deque([], maxlen=50)
-    empty_chunk = aug._make_history_chunk(empty)
-    assert empty_chunk["data"] == ""
-    assert empty_chunk["metadata"]["type"] == "history"
+    # Empty history falls back to dtype=None
+    empty = None
+    empty = aug._update_history(empty)
+    assert empty is None
 
 
 def test_process_query_once_without_sources(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -478,12 +476,13 @@ def test_process_query_once_without_sources(monkeypatch: pytest.MonkeyPatch) -> 
     )
 
     captured = {}
-    def _fake_generate(self, query, retrieved_chunks, gen_config): # pylint: disable=unused-argument
+    def _fake_generate(self, query, retrieved_chunks, gen_config, chat_history): # pylint: disable=unused-argument
         # Capture what _process_query_once sends to generate_response
         captured["query"] = query
         captured["retrieved_chunks"] = retrieved_chunks
         captured["temperature"] = gen_config.temperature
         captured["max_new_tokens"] = gen_config.max_new_tokens
+        captured["hist"] = chat_history
         return "final answer"
 
     monkeypatch.setattr(Augmenter, "generate_response", _fake_generate, raising=True)
@@ -520,16 +519,15 @@ def test_process_query_once_without_sources(monkeypatch: pytest.MonkeyPatch) -> 
     assert captured["max_new_tokens"] == 128
 
     rc = captured["retrieved_chunks"]
-    assert isinstance(rc, list) and len(rc) == 3
-    assert rc[0]["metadata"]["type"] == "history"
+    assert isinstance(rc, list) and len(rc) == 2
 
-    hist_text = rc[0]["data"]
+    hist_text = captured["hist"]
     assert "User: recent user msg" in hist_text
     assert "Assistant: recent assistant msg" in hist_text
     assert "User: old user msg" not in hist_text
     assert "Assistant: old assistant msg" not in hist_text
-    assert rc[1]["data"] == "KB chunk 1"
-    assert rc[2]["data"] == "KB chunk 2"
+    assert rc[0]["data"] == "KB chunk 1"
+    assert rc[1]["data"] == "KB chunk 2"
 
 
 def test_process_query_once_with_sources(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -551,10 +549,11 @@ def test_process_query_once_with_sources(monkeypatch: pytest.MonkeyPatch) -> Non
 
     captured = {}
     def _fake_generate_with_sources(
-        self, query, retrieved_chunks, gen_config # pylint: disable=unused-argument
+        self, query, retrieved_chunks, gen_config, chat_history # pylint: disable=unused-argument
         ):
         captured["query"] = query
         captured["retrieved_chunks"] = retrieved_chunks
+        captured["hist"] = chat_history
         return {
             "response": "with sources",
             "sources": retrieved_chunks,
@@ -591,8 +590,7 @@ def test_process_query_once_with_sources(monkeypatch: pytest.MonkeyPatch) -> Non
     assert out["response"] == "with sources"
     assert out["query"] == "hello"
     assert out["num_sources"] == len(out["sources"]) == len(captured["retrieved_chunks"])
-    assert out["sources"][0]["metadata"].get("type") == "history"
-    assert "Conversation so far:" in out["sources"][0]["data"]
+    assert "Conversation so far (for disambiguation only):" in captured["hist"]
 
 
 def test_initiate_chat_basic_flow( # pylint: disable=too-many-locals

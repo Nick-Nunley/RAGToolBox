@@ -174,21 +174,31 @@ class Augmenter:
             logger.error(err, exc_info=True)
             raise RuntimeError(err) from e
 
-    def _format_prompt(self, query: str, retrieved_chunks: Sequence[RetrievedChunk]) -> str:
+    def _format_prompt(
+        self, query: str, retrieved_chunks: Sequence[RetrievedChunk],
+        chat_history: Optional[str] = None
+        ) -> str:
         """
         Format the query and retrieved chunks into a prompt for the LLM.
 
         Args:
             query: The user's original query
             retrieved_chunks: Sequence of retrieved text chunks
+            chat_history: An optional string containing chat history for when using `--chat`
 
         Returns:
             Formatted prompt string
         """
+        if chat_history is None:
+            chat_history = ''
         contx = "\n\n".join(
             f"Context {i+1}: {chunk['data']}" for i, chunk in enumerate(retrieved_chunks)
             )
-        prompt = self.prompt_type.format(context = contx, query = query)
+        prompt = self.prompt_type.format(
+            context = contx,
+            chat_history = chat_history,
+            query = query
+            )
         return prompt
 
     def _call_llm(self, prompt: str, temperature: float = 0.25, max_new_tokens: int = 200) -> str:
@@ -325,7 +335,7 @@ class Augmenter:
 
     def generate_response(
         self, query: str, retrieved_chunks: Sequence[RetrievedChunk],
-        gen_config: GenerationConfig = None
+        gen_config: Optional[GenerationConfig] = None, chat_history: Optional[str] = None
         ) -> str:
         """
         Generate a response using the retrieved chunks as context.
@@ -336,6 +346,7 @@ class Augmenter:
             gen_config:
                 The text generation configuration. If omitted, a default
                 :class:`GenerationConfig` is used.
+            chat_history: An optional chat history for subsequent interactions with the LLM
 
         Returns:
             The generated response string from the LLM
@@ -361,7 +372,7 @@ class Augmenter:
         if gen_config is None:
             gen_config = GenerationConfig()
 
-        prompt = self._format_prompt(query, retrieved_chunks)
+        prompt = self._format_prompt(query, retrieved_chunks, chat_history)
 
         resp = self._call_llm(prompt, gen_config.temperature, gen_config.max_new_tokens)
         logger.info("Valid response from LLM generated")
@@ -369,7 +380,7 @@ class Augmenter:
 
     def generate_response_with_sources(
         self, query: str, retrieved_chunks: Sequence[RetrievedChunk],
-        gen_config: GenerationConfig = None
+        gen_config: Optional[GenerationConfig] = None, chat_history: Optional[str] = None
         ) -> dict:
         """
         Generate a response with source information.
@@ -380,6 +391,7 @@ class Augmenter:
             gen_config:
                 The text generation configuration. If omitted, a default
                 :class:`GenerationConfig` is used.
+            chat_history: An optional chat history for subsequent interactions with the LLM
 
         Returns:
             A dict as follows:
@@ -409,7 +421,7 @@ class Augmenter:
         if gen_config is None:
             gen_config = GenerationConfig()
 
-        resp = self.generate_response(query, retrieved_chunks, gen_config)
+        resp = self.generate_response(query, retrieved_chunks, gen_config, chat_history)
 
         return {
             "response": resp,
@@ -420,19 +432,21 @@ class Augmenter:
             "max_new_tokens": gen_config.max_new_tokens
         }
 
-    def _make_history_chunk(self, history: Deque[Tuple[str, str]]) -> RetrievedChunk:
+    def _update_history(
+        self, history: Optional[Deque[Tuple[str, str]]],  max_chars: int = 2000
+        ) -> Optional[str]:
         """
         Turn the rolling (user, assistant) history into a synthetic context chunk
         that fits your existing prompt formatting.
         """
         if not history:
-            return {"data": "", "metadata": {"type": "history"}}
+            return None
         lines = []
         for u, a in history:
             lines.append(f"User: {u}")
             lines.append(f"Assistant: {a}")
-        text = "Conversation so far:\n" + "\n".join(lines)
-        return {"data": text, "metadata": {"type": "history"}}
+        text = "Conversation so far (for disambiguation only):\n" + "\n".join(lines)
+        return text[:max_chars]
 
     def _process_query_once(
         self,
@@ -447,35 +461,35 @@ class Augmenter:
         - call the augmenter,
         - return a dict with message + (optional) sources.
         """
-        # Retrieve fresh context for this turn
+        # Retrieve fresh context for this turn, will want to make this conditional as
+        # subsequent user queries become vague, this will cause fresh context to be
+        # less useful than past context
         retrieved = retriever_obj.retrieve(query=query, ret_config=chat_config.ret_config)
 
-        extra_chunks: list[RetrievedChunk] = []
         if chat_config.history and len(chat_config.history) > 0:
             # Only include the most recent N turns
             recent = deque(
                 list(chat_config.history)[-chat_config.history_turns:],
                 maxlen=chat_config.history_turns
                 )
-            hist_chunk = self._make_history_chunk(recent)
-            if hist_chunk["data"]:
-                extra_chunks.append(hist_chunk)
-
-        # Combine history chunk (if any) + retrieved chunks
-        all_context: list[RetrievedChunk] = [*extra_chunks, *retrieved]
+        else:
+            recent = None
+        hist = self._update_history(recent)
 
         if chat_config.include_sources:
             out = self.generate_response_with_sources(
                 query=query,
-                retrieved_chunks=all_context,
-                gen_config=chat_config.gen_config
+                retrieved_chunks=retrieved,
+                gen_config=chat_config.gen_config,
+                chat_history=hist
                 )
             return out
 
         msg = self.generate_response(
             query=query,
-            retrieved_chunks=all_context,
-            gen_config=chat_config.gen_config
+            retrieved_chunks=retrieved,
+            gen_config=chat_config.gen_config,
+            chat_history=hist
             )
         return {"response": msg, "sources": retrieved, "num_sources": len(retrieved)}
 
@@ -514,7 +528,7 @@ def initiate_chat(
                     )
                 )
             assistant_msg = result["response"]
-            logger.debug('Q: %s. A: %s', user_msg, result)
+            logger.debug('Q: %s. A: %s', user_msg, result['response'])
             print(f"\nAssistant: {assistant_msg}")
 
             if command_args.sources:
