@@ -9,8 +9,8 @@ Environment:
     HUGGINGFACE_API_KEY: Token used when calling the Hugging Face Inference API
 
 See Also:
-    - :pyclass:`RAGToolBox.retriever.Retriever`
-    - :pyclass:`RAGToolBox.embeddings.Embeddings`
+    - :py:class:`RAGToolBox.retriever.Retriever`
+    - :py:class:`RAGToolBox.embeddings.Embeddings`
 """
 
 import argparse
@@ -54,8 +54,8 @@ class ChatConfig:
     Configuration for interactive chat turns.
 
     Attributes:
-        ret_config: :pyclass:`RAGToolBox.retriever.RetrievalConfig` for retrieval.
-        gen_config: :pyclass:`GenerationConfig` for generation.
+        ret_config: :py:class:`RAGToolBox.retriever.RetrievalConfig` for retrieval.
+        gen_config: :py:class:`GenerationConfig` for generation.
         history: Rolling deque of prior (user, assistant) turns.
         include_sources: If True, return KB sources alongside the answer.
         history_turns: How many most-recent turns to expose for disambiguation.
@@ -123,7 +123,7 @@ class Augmenter:
         use_local: bool = False, prompt_type: str = 'default'
         ):
         """
-        Initialize an :pyclass:`Augmenter`.
+        Initialize an :py:class:`Augmenter`.
 
         Args:
             model_name: LLM identifier (e.g., "google/gemma-2-2b-it")
@@ -547,8 +547,8 @@ def initiate_chat(
     it exits the process with code 0.
 
     Args:
-        augmenter_obj: An initialized :pyclass:`Augmenter`.
-        retriever_obj: An initialized :pyclass:`RAGToolBox.retriever.Retriever`.
+        augmenter_obj: An initialized :py:class:`Augmenter`.
+        retriever_obj: An initialized :py:class:`RAGToolBox.retriever.Retriever`.
         command_args: Parsed CLI args (argparse.Namespace) containing:
             - ``top_k`` (int)
             - ``max_retries`` (int)
