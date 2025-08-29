@@ -116,8 +116,8 @@ Retrieve relevant chunks and generate an LLM response:
 
 ```python
 from pathlib import Path
-from RAGToolBox.retriever import Retriever
-from RAGToolBox.augmenter import Augmenter
+from RAGToolBox.retriever import Retriever, RetrievalConfig
+from RAGToolBox.augmenter import Augmenter, GenerationConfig
 
 # Example query
 user_query = "What is RAG?"
@@ -129,7 +129,7 @@ retriever = Retriever(
 )
 
 # Perform retrieval
-contexts = retriever.retrieve(user_query, top_k=5)
+contexts = retriever.retrieve(user_query, RetrievalConfig(top_k=5))
 
 # Initialize augmenter
 augmenter = Augmenter(
@@ -143,8 +143,7 @@ augmenter = Augmenter(
 result = augmenter.generate_response_with_sources(
     query=user_query,
     retrieved_chunks=contexts,
-    temperature=0.25,
-    max_new_tokens=200
+    gen_config=GenerationConfig(temperature=0.25, max_new_tokens=200)
 )
 print(result["response"])
 ```
