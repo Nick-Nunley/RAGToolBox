@@ -606,6 +606,7 @@ def initiate_chat(
             if command_args.sources:
                 print(f"\n[Sources used: "
                 f"{result.get('num_sources', len(result.get('sources', [])))}]")
+                print(f"\nSources: {result.get('sources')}")
             history.append((user_msg, assistant_msg))
 
         except KeyboardInterrupt:
