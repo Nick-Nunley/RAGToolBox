@@ -49,23 +49,23 @@ pip install .
 
 * Python 3.10+
 * Core dependencies (see also `pyproject.toml`):
-    * numpy>=1.26.0
-    * requests>=2.32.4
-    * pyyaml>=6.0.2
-    * pdfplumber>=0.11.7
-    * html2text>=2025.4.15
-    * pytest>=8.4.1
-    * bio>=1.8.0
-    * bs4>=0.0.2
-    * readability-lxml>=0.8.4.1
-    * nltk>=3.9.1
-    * fastembed>=0.7.1
-    * huggingface_hub>=0.33.5
+    * numpy
+    * requests
+    * pyyaml
+    * pdfplumber
+    * html2text
+    * pytest
+    * bs4
+    * readability-lxml
+    * nltk
+    * fastembed
+    * huggingface_hub
 * Optional dependencies (for extended capabilities):
-    * openai>=1.95.1
-    * chromadb>=1.0.15
-    * torch>=2.7.1
-    * transformers>=4.30.0
+    * openai
+    * chromadb
+    * torch
+    * transformers
+    * biopython
 
 ---
 
