@@ -186,7 +186,7 @@ Run the full test suite:
 bash tests/Run_tests.sh
 ```
 
-Continuous integration is configured *via* GitHub Actions (see `.github/workflows/ci.yml`).
+Continuous integration is configured *via* GitHub Actions (see `.github/workflows/CI.yml`).
 
 ---
 
