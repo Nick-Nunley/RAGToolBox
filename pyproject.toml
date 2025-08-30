@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "ragtoolbox"
-version = "0.1.0"
+version = "0.1.0.dev0"
 description = "Modular toolkit for building Retrieval-Augmented Generation (RAG) pipelines."
 authors = ["Nick-Nunley <nicknunley17@ucla.edu>"]
 license = "MIT"
