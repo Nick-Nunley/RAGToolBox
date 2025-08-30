@@ -34,7 +34,10 @@
 Install the latest release from PyPI:
 
 ```bash
-pip install RAGToolBox
+pip install ragtoolbox
+
+# with optional extras
+pip install "ragtoolbox[transformers,chromadb,openai,ncbi]"
 ```
 
 Or install from source:
