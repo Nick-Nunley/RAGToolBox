@@ -188,7 +188,7 @@ python -m RAGToolBox.loader https://example.com/article.pdf --output-dir assets/
 python -m RAGToolBox.index --kb-dir assets/kb --embedding-model fastembed --vector-store sqlite
 
 # Retrieve top-10 chunks
-python -m RAGToolBox.retriever --query "Explain RAG" --embedding-model openai
+python -m RAGToolBox.retriever --query "Explain RAG"
 
 # Augment with LLM
 python -m RAGToolBox.augmenter "What is RAG?" --sources
