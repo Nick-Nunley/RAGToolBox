@@ -98,6 +98,9 @@ from pathlib import Path
 from RAGToolBox.chunk import SectionAwareChunker, SlidingWindowChunker, HierarchicalChunker
 from RAGToolBox.index import Indexer, IndexerConfig
 
+# Directory containing .txt files
+kb_dir = Path("assets/kb")
+
 chunker = HierarchicalChunker([
     SectionAwareChunker(max_chunk_size=1000, overlap=200),
     SlidingWindowChunker(window_size=1000, overlap=200)
@@ -110,6 +113,26 @@ indexer = Indexer(
         vector_store_config={"db_path": Path("assets/kb/embeddings/embeddings.db")}
     )
 )
+
+# Read documents from files
+documents = []
+txt_files = list(kb_dir.glob('*.txt'))
+for file_path in txt_files:
+    with open(file_path, 'r', encoding='utf-8') as f:
+        documents.append((file_path.name, f.read()))
+
+# Process documents and create chunked_results
+chunked_results = []
+for name, text in documents:
+    _, metadata, chunks = indexer.chunk((name, text))
+    for chunk in chunks:
+        chunked_results.append({
+            'name': name,
+            'metadata': metadata,
+            'chunk': chunk
+        })
+
+# Index the chunked results into a vector db
 indexer.index(chunked_results)
 ```
 
@@ -164,7 +187,8 @@ python -m RAGToolBox.loader https://example.com/article.pdf --output-dir assets/
 # Build index (chunk + embed)
 python -m RAGToolBox.index --kb-dir assets/kb --embedding-model fastembed --vector-store sqlite
 
-# Retrieve top-10 chunks\ npython -m RAGToolBox.retriever --query "Explain RAG" --embedding-model openai
+# Retrieve top-10 chunks
+python -m RAGToolBox.retriever --query "Explain RAG" --embedding-model openai
 
 # Augment with LLM
 python -m RAGToolBox.augmenter "What is RAG?" --sources

@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [Unreleased]
+
+### Fixed
+
+- **Documentation improvements:**
+  - Fixed broken indexing pipeline example in `README` that referenced undefined `chunked_results` variable
+  - Fixed CLI Usage example with `retriever` module to not be commented out
+
+---
+
 ## [0.1.0] - 2025-08-29
 
 ### Added
